@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>标准速递</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html, body {
+            height: 100%;
+            background: #f8fafc;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+            -webkit-app-region: drag;
+            user-select: none;
+        }
+
+        .loading-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            gap: 24px;
+        }
+
+        .logo-svg {
+            width: 80px;
+            height: 80px;
+            animation: logo-pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes logo-pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(0.95); opacity: 0.85; }
+        }
+
+        .app-name {
+            font-size: 28px;
+            font-weight: 700;
+            color: #1e293b;
+            letter-spacing: 2px;
+        }
+
+        .app-subtitle {
+            font-size: 13px;
+            color: #94a3b8;
+            letter-spacing: 1px;
+        }
+
+        .loader-dots {
+            display: flex;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .loader-dots span {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #f59e0b;
+            animation: bounce 1.2s ease-in-out infinite;
+        }
+
+        .loader-dots span:nth-child(2) { animation-delay: 0.15s; }
+        .loader-dots span:nth-child(3) { animation-delay: 0.3s; }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+            40% { transform: translateY(-10px); opacity: 1; }
+        }
+
+        .status-text {
+            font-size: 12px;
+            color: #94a3b8;
+            transition: opacity 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading-container">
+        <svg class="logo-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+            <defs>
+                <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#F59E0B"/>
+                    <stop offset="100%" stop-color="#D97706"/>
+                </linearGradient>
+            </defs>
+            <rect width="256" height="256" rx="56" fill="url(#bg)"/>
+            <g transform="translate(128,128) scale(7.5)" stroke="white" stroke-width="1.5"
+               stroke-linecap="round" stroke-linejoin="round" fill="none">
+                <path d="M3 4m0 2a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v0a2 2 0 0 1-2 2h-14a2 2 0 0 1-2-2z"/>
+                <path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-10"/>
+                <path d="M10 12l4 0"/>
+            </g>
+        </svg>
+        <div class="app-name">标准速递</div>
+        <div class="app-subtitle">正在启动服务...</div>
+        <div class="loader-dots">
+            <span></span><span></span><span></span>
+        </div>
+    </div>
+
+    <script>
+    (function poll() {
+        fetch('http://127.0.0.1:8000/api/health')
+            .then(function(r) {
+                if (r.ok) {
+                    document.querySelector('.app-subtitle').textContent = '服务就绪，正在进入...';
+                    setTimeout(function() {
+                        window.location.href = 'http://127.0.0.1:8000/';
+                    }, 150);
+                }
+            })
+            .catch(function() {
+                setTimeout(poll, 300);
+            });
+    })();
+    </script>
+</body>
+</html>

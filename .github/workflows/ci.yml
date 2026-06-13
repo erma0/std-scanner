@@ -1,0 +1,154 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'          # 推送 v* 标签触发（如 v3.9.1）
+  workflow_dispatch:   # 手动触发
+
+permissions:
+  contents: write     # 创建 Release 所需
+
+jobs:
+  # ─── 语法检查 + 测试 ───
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install ruff
+      - run: ruff check .
+      - run: pip install -r requirements.txt
+      - run: python verify_scripts.py
+      - run: pip install pytest && python -m pytest tests/ -v --tb=short
+
+  # ─── 编译 Windows 版 ───
+  build-windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: 编译（目录模式）
+        run: python build.py --clean
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: 标准速递-win64
+          path: dist/标准速递/
+          retention-days: 7
+
+  # ─── 编译 Windows 单文件版 ───
+  build-windows-onefile:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: 编译（单文件模式）
+        run: python build.py --clean --onefile
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: 标准速递-win64-onefile
+          path: dist/标准速递.exe
+          retention-days: 7
+
+  # ─── 发布 Release ───
+  release:
+    needs: [build-windows, build-windows-onefile]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 下载目录版
+        uses: actions/download-artifact@v4
+        with:
+          name: 标准速递-win64
+          path: 标准速递-win64
+
+      - name: 下载单文件版
+        uses: actions/download-artifact@v4
+        with:
+          name: 标准速递-win64-onefile
+          path: 标准速递-onefile
+
+      - name: 打包 ZIP
+        run: |
+          # 目录版
+          cp -r 标准速递-win64 标准速递-win64-temp
+          cp README.md 标准速递-win64-temp/ 2>/dev/null || true
+          cd 标准速递-win64-temp && zip -r ../标准速递-win64.zip . && cd ..
+          # 单文件版
+          cp 标准速递-onefile/标准速递.exe ./
+          zip 标准速递-win64-onefile.zip 标准速递.exe
+
+      - name: 生成 Release Notes
+        id: notes
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          # 从 version.py 读取版本
+          VERSION=$(python3 -c "exec(open('version.py').read()); print(VERSION)")
+          cat > release_notes.md << EOF
+          ## 标准速递 v${VERSION}
+
+          ### 下载说明
+
+          | 文件 | 说明 |
+          |------|------|
+          | \`标准速递-win64.zip\` | 目录版（推荐，启动快） |
+          | \`标准速递-win64-onefile.zip\` | 单文件版（体积小，启动慢） |
+
+          ### 使用方法
+
+          1. 下载并解压 ZIP 文件
+          2. 双击 \`标准速递.exe\` 启动
+          3. 首次使用会自动创建配置目录 \`~/.std_scanner/\`
+
+          ### 可选依赖
+
+          - 安装 Playwright 可启用预览转 PDF 功能：
+            \`\`\`bash
+            pip install playwright
+            playwright install chromium
+            \`\`\`
+
+          ### 系统要求
+
+          - Windows 10/11 (64-bit)
+          - 无需安装 Python
+          EOF
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.notes.outputs.tag }}
+          body_path: release_notes.md
+          files: |
+            标准速递-win64.zip
+            标准速递-win64-onefile.zip

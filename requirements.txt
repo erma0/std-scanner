@@ -1,0 +1,12 @@
+httpx>=0.28
+ddddocr>=1.0
+Pillow>=10.0
+# playwright>=1.40  # 可选：浏览器预览转PDF，不装则仅支持直接下载
+parsel>=1.8
+fastapi>=0.100
+uvicorn>=0.23
+pywebview>=4.0
+pystray>=0.19
+psutil>=5.9
+watchfiles>=1.0
+APScheduler>=3.10

@@ -1,0 +1,41 @@
+# Python 编译缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 扫描运行时代理
+scan_ckpt.json
+safety_full.json
+hb_standards.json
+db_standards.json
+safety_report.md
+
+# 迁移备份
+.std_scanner.migrated/
+
+# IDE 和工具
+.workbuddy/
+.vscode/
+.idea/
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 前端构建产物（node_modules 由 package.json 管理）
+node_modules/
+
+# 项目截图（文档用，不入仓库）
+screenshot*.png
+
+# 依赖锁文件（自动生成，不提交）
+requirements.lock
+
+# 调试/临时产物
+debug.log
+snapshot_kw.txt
+
+# PyInstaller 构建产物
+build/
+dist/
+*.spec

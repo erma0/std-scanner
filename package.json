@@ -1,0 +1,13 @@
+{
+  "name": "std-scanner",
+  "version": "3.9.1",
+  "description": "标准速递 - 前端资源构建",
+  "scripts": {
+    "build:css": "npx @tailwindcss/cli -i src/tailwind.css -o static/css/app.css --minify",
+    "watch:css": "npx @tailwindcss/cli -i src/tailwind.css -o static/css/app.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4",
+    "tailwindcss": "^4"
+  }
+}
