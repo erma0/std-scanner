@@ -219,7 +219,7 @@ def build(onefile=False):
     if exe_path.exists():
         size_mb = exe_path.stat().st_size / (1024 * 1024)
         print(f"\n{'='*60}")
-        print(f"  编译成功!")
+        print("  编译成功!")
         print(f"  输出: {exe_path}")
         print(f"  大小: {size_mb:.1f} MB")
         print(f"  版本: v{VERSION}")

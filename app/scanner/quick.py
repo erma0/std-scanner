@@ -13,9 +13,8 @@ from version import VERSION, APP_NAME
 from config.paths import BASE_DIR, DATA_FILE
 from config.settings import (
     OUTPUT_DIR, REPORT_FILE, DETAIL_URL, OPENSTD,
-    PAGE_SIZE, DELAY,
+    DELAY,
     http_client, HB_CODE_MAP, HB_SAFETY_CODES,
-    DB_PROVINCE_MAP, _resolve_hb_industry,
 )
 from app.helpers import atomic_write
 from app.keywords import load_keywords, clean_name

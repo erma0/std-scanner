@@ -1,7 +1,6 @@
 """scanner.preview — 浏览器启动与预览转 PDF"""
 
 import asyncio
-import json
 import os
 import time
 import logging
@@ -11,7 +10,7 @@ import shutil
 import math
 
 from config.settings import (
-    CAPTCHA_BASE, DELAY, BROWSER_CHANNELS, http_client,
+    CAPTCHA_BASE, BROWSER_CHANNELS, http_client,
 )
 from app.captcha import solve_captcha
 

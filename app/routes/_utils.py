@@ -56,7 +56,7 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
     task_ids = []
     for st in scan_types:
         tid = f"{st}_{ts}"
-        tc = type_configs.get(st, {})
+        type_configs.get(st, {})
 
         task_manager.create(tid, {
             "task_id": tid,

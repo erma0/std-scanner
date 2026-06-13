@@ -82,7 +82,8 @@ def load_config():
 
 def save_config(config):
     """保存配置文件（原子写入，防止崩溃导致配置丢失）"""
-    import tempfile, os
+    import tempfile
+    import os
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     tmp_fd, tmp_path = tempfile.mkstemp(dir=str(CONFIG_DIR), suffix='.tmp')
     try:

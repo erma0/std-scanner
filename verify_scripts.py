@@ -2,7 +2,6 @@
 验证脚本 — 检查所有模块的导入和语法
 """
 import sys
-import os
 import ast
 from pathlib import Path
 

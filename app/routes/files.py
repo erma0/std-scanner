@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 
 from . import state as _state
 from config.manager import load_config, save_config
@@ -113,9 +113,9 @@ async def select_folder_api():
             loop.call_soon_threadsafe(
                 lambda: future.set_result(result[0] if result else None)
             )
-        except Exception as e:
+        except Exception as exc:  # noqa: F841
             loop.call_soon_threadsafe(
-                lambda: future.set_exception(e)
+                lambda: future.set_exception(exc)  # noqa: F821
             )
 
     threading.Thread(target=_show_dialog, daemon=True).start()
@@ -150,9 +150,9 @@ async def save_file_dialog_api(request: Request):
             loop.call_soon_threadsafe(
                 lambda: future.set_result(result[0] if result else None)
             )
-        except Exception as e:
+        except Exception as exc:  # noqa: F841
             loop.call_soon_threadsafe(
-                lambda: future.set_exception(e)
+                lambda: future.set_exception(exc)  # noqa: F821
             )
 
     threading.Thread(target=_show_dialog, daemon=True).start()

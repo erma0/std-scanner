@@ -5,7 +5,7 @@
 import time
 import threading
 import asyncio
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List
 
 from config.manager import load_config, save_config
 from app.helpers import get_logger

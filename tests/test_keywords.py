@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.keywords import SafetyMatcher, is_safety, is_aq_yj, clean_name, load_keywords
+from app.keywords import SafetyMatcher, is_aq_yj, clean_name, load_keywords
 
 
 class TestSafetyMatcher:

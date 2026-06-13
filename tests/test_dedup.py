@@ -1,5 +1,5 @@
 """去重模块测试"""
-import sys, os, tempfile
+import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 

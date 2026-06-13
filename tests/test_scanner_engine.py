@@ -16,9 +16,7 @@ class TestRunScanPipeline:
 
     def test_gb_config_defaults(self):
         """验证 GB 配置默认值"""
-        config = {'max_results': 100, 'scan_only': True}
         # 只验证函数签名和导入不报错
-        import asyncio
         import inspect
         sig = inspect.signature(run_scan_pipeline)
         params = list(sig.parameters.keys())

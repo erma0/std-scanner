@@ -8,7 +8,7 @@ import threading
 import logging
 import atexit
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 
 from config.paths import CONFIG_DIR, DB_PATH, migrate_old_data
 

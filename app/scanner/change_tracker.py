@@ -7,9 +7,7 @@ PRIMARY KEY 使用 (scan_type, std_code, extra_key) 三元组，
 extra_key 存储 HB 的行业代码或 DB 的省份名称，避免跨行业/省份编号重复。
 """
 import time
-import threading
 import logging
-from config.paths import DB_PATH
 from app.database import _get_conn, _db_lock
 from app.helpers import normalize_code
 

@@ -14,7 +14,7 @@ from app.scanner import (
     fetch_stdpage_search, check_downloadable,
     check_hb_downloadable, get_detail_url_by_tid,
     preview_to_pdf, launch_browser,
-    make_filename, quick_download_web,
+    make_filename,
 )
 from app.scanner.gb_scan import _RE_XZ_BTN, _RE_CK_BTN
 from app.dedup import get_existing_files, add_to_existing_files_cache
@@ -142,7 +142,7 @@ async def _download_selected_items(task_id, items):
                     can_download, hb_hash, pattern = await asyncio.get_running_loop().run_in_executor(
                         None, check_hb_downloadable, detail_url)
                     if not can_download or not hb_hash:
-                        _log.info(f"  [INFO] 无PDF附件")
+                        _log.info("  [INFO] 无PDF附件")
                         task_manager.increment_stats(task_id, skipped=1)
                         continue
 
@@ -158,7 +158,7 @@ async def _download_selected_items(task_id, items):
                         task_manager.increment_stats(task_id, success=1, downloaded=1)
                         add_to_existing_files_cache(filename)
                     else:
-                        _log.info(f"  [FAIL] 验证码下载失败")
+                        _log.info("  [FAIL] 验证码下载失败")
                         task_manager.increment_stats(task_id, failed=1)
                 except Exception as e:
                     _log.error(f"  [ERROR] {e}")
@@ -170,7 +170,7 @@ async def _download_selected_items(task_id, items):
                     resp.raise_for_status()
                     m = re.search(r'newGbInfo\?hcno=([A-Fa-f0-9]+)', resp.text)
                     if not m:
-                        _log.info(f"  [WARN] 未找到 hcno，跳过")
+                        _log.info("  [WARN] 未找到 hcno，跳过")
                         task_manager.increment_stats(task_id, skipped=1)
                         continue
                     hcno = m.group(1)
@@ -194,7 +194,7 @@ async def _download_selected_items(task_id, items):
                     can_preview = has_preview and not copyright
 
                     if can_dl_btn:
-                        _log.info(f"  [DOWN] 下载中...")
+                        _log.info("  [DOWN] 下载中...")
                         pdf_data = await asyncio.get_running_loop().run_in_executor(
                             None, download_with_captcha, hcno)
                         if pdf_data:
@@ -203,17 +203,17 @@ async def _download_selected_items(task_id, items):
                             task_manager.increment_stats(task_id, success=1, downloaded=1)
                             add_to_existing_files_cache(filename)
                         else:
-                            _log.info(f"  [FAIL] 验证码下载失败")
+                            _log.info("  [FAIL] 验证码下载失败")
                             task_manager.increment_stats(task_id, failed=1)
 
                     elif can_preview:
                         from app.scanner.preview import PLAYWRIGHT_AVAILABLE
                         from config.manager import load_config
                         if not (load_config().get('download', {}).get('allow_preview', True) and PLAYWRIGHT_AVAILABLE):
-                            _log.info(f"  [SKIP] 预览拼接已禁用")
+                            _log.info("  [SKIP] 预览拼接已禁用")
                             task_manager.increment_stats(task_id, skipped=1)
                         else:
-                            _log.info(f"  [PREV] 预览中...")
+                            _log.info("  [PREV] 预览中...")
                             if not browser_ctx:
                                 playwright_mgr, browser_ctx = await launch_browser()
                             success = await preview_to_pdf(hcno, str(filepath), browser_ctx)
@@ -222,10 +222,10 @@ async def _download_selected_items(task_id, items):
                                 task_manager.increment_stats(task_id, success=1, downloaded=1)
                                 add_to_existing_files_cache(filename)
                             else:
-                                _log.info(f"  [FAIL] 预览失败")
+                                _log.info("  [FAIL] 预览失败")
                                 task_manager.increment_stats(task_id, failed=1)
                     else:
-                        _log.info(f"  [NOBTN] 无下载/预览按钮" + ("(版权受限)" if copyright else ""))
+                        _log.info("  [NOBTN] 无下载/预览按钮" + ("(版权受限)" if copyright else ""))
                         task_manager.increment_stats(task_id, skipped=1)
 
                 except Exception as e:

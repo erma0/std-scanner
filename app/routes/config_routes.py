@@ -6,7 +6,6 @@ from typing import Dict, Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .state import task_manager, ns
 from config.manager import load_config, save_config, deep_merge, validate_config, mask_sensitive_config
 from config.settings import HB_CODE_MAP, HB_SAFETY_CODES
 from app.keywords import load_keywords, get_all_groups, save_groups, delete_group, reset_to_default, import_to_group

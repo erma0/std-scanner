@@ -12,7 +12,7 @@ import logging
 from datetime import datetime
 
 from .state import task_manager
-from ._utils import launch_task as _launch_task, update_task_status, create_combined_scan_tasks
+from ._utils import launch_task as _launch_task, create_combined_scan_tasks
 from app.scanner_engine import run_scan_pipeline
 from app.notifier import get_notification_service
 from app.scanner.utils import compute_download_stats

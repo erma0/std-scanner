@@ -7,7 +7,6 @@
   - 企业微信 (wecom)
   - 钉钉 (dingtalk)
 """
-import logging
 
 from app.helpers import get_logger
 from config.manager import load_config

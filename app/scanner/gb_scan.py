@@ -2,7 +2,6 @@
 
 import asyncio
 import os
-import time
 import logging
 import re
 import math
@@ -298,7 +297,7 @@ async def download_phase(standards, existing=None, allow_preview_override=None, 
                 if on_item_done:
                     await on_item_done(s.get('stdName', ''))
 
-            except Exception as e:
+            except Exception:
                 s['dlStatus'] = 'failed'
                 stats['failed'] += 1
                 if on_item_done:

@@ -3,9 +3,8 @@
 import logging
 from urllib.parse import urlencode
 
-from config.settings import DB_API_URL, http_client, get_output_dir
-from app.keywords import is_safety, set_active_group
-from app.scanner.checkpoint import get_incr_checkpoint, update_incr_checkpoint
+from config.settings import DB_API_URL, http_client
+from app.keywords import set_active_group
 from app.scanner.hb_scan import _scan_list_standards, _download_standards
 
 _log = logging.getLogger('std_scraper')

@@ -12,7 +12,6 @@ from version import VERSION, APP_NAME
 import asyncio
 import mimetypes
 import time
-import logging as _logging_mod
 from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -20,12 +19,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 
-from config.settings import HB_CODE_MAP, get_output_dir, http_client, OPENSTD, DETAIL_URL
-from config.paths import DATA_FILE
-from app.helpers import get_logger, setup_logger, format_duration, validate_path
-from app.scanner import scan_pages, make_filename, quick_download_web
+from app.helpers import get_logger
 from app.dedup import start_file_watcher, stop_file_watcher
-from app.notifier import get_notification_service, reset_notification_service
+from app.notifier import get_notification_service
 from app.managers import task_manager, scheduler_manager
 
 # === 必须在路由模块导入之前初始化 state ===
@@ -46,13 +42,11 @@ from app.routes.search import router as search_router
 from app.routes.sse import router as sse_router
 from app.routes.checkpoint import router as checkpoint_router
 
-from app.routes import _utils
-
 pywebview_window = None
 _main_loop = None
 
 # 服务端常量
-from config.settings import SERVER_HOST as _SERVER_HOST, SERVER_PORT as _SERVER_PORT
+from config.settings import SERVER_PORT as _SERVER_PORT
 _SERVER_ORIGINS = [f"http://localhost:{_SERVER_PORT}", f"http://127.0.0.1:{_SERVER_PORT}", "file://", "null"]
 
 

@@ -2,7 +2,6 @@
 import sys
 import csv
 import json
-import os
 import hashlib
 import re
 from datetime import datetime
@@ -80,7 +79,7 @@ def analyze(target: Path, output_format: str = None):
         print()
 
     print(f"\n{'='*60}")
-    print(f"【一、精确重复】完全相同的文件（相同大小+相同内容）")
+    print("【一、精确重复】完全相同的文件（相同大小+相同内容）")
     print(f"共 {len(exact_dup_groups)} 组，涉及 {sum(len(g) for g in exact_dup_groups)} 个文件")
     for i, group in enumerate(exact_dup_groups, 1):
         size_mb = group[0].stat().st_size / 1024 / 1024
@@ -101,7 +100,7 @@ def analyze(target: Path, output_format: str = None):
 
     near_dup = {k: v for k, v in code_groups.items() if len(v) > 1}
     print(f"\n{'='*60}")
-    print(f"【二、同编号不同文件名】同一标准编号但文件名不同的文件")
+    print("【二、同编号不同文件名】同一标准编号但文件名不同的文件")
     print(f"共 {len(near_dup)} 组，涉及 {sum(len(v) for v in near_dup.values())} 个文件")
     for code, files in sorted(near_dup.items()):
         print(f"\n  编号: {code}")
@@ -120,7 +119,7 @@ def analyze(target: Path, output_format: str = None):
     multi_year = {k: sorted(v) for k, v in base_groups.items() if len(v) > 1}
     if multi_year:
         print(f"\n{'='*60}")
-        print(f"【二点五、同标准多版本】同一标准前缀存在多个年份版本")
+        print("【二点五、同标准多版本】同一标准前缀存在多个年份版本")
         print(f"共 {len(multi_year)} 个标准存在多版本")
         for prefix, years in sorted(multi_year.items()):
             years_str = ', '.join(str(y) for y in years)
@@ -128,7 +127,7 @@ def analyze(target: Path, output_format: str = None):
 
     # ── 4. 文件名异常 ──
     print(f"\n{'='*60}")
-    print(f"【三、文件名异常】")
+    print("【三、文件名异常】")
     anomalies = []
     SPECIAL_DASHES = {'—', '–', '―', '－', '−'}
 
@@ -160,7 +159,7 @@ def analyze(target: Path, output_format: str = None):
 
     # ── 5. 按标准类型统计 ──
     print(f"\n{'='*60}")
-    print(f"【四、按标准类型统计】")
+    print("【四、按标准类型统计】")
     type_counts = defaultdict(int)
     for p in pdfs:
         prefix = p.name.split()[0] if ' ' in p.name else p.name[:5]
