@@ -13,6 +13,8 @@ jobs:
   # ─── 语法检查 + 测试 ───
   test:
     runs-on: windows-latest
+    env:
+      PYTHONUTF8: 1
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -29,6 +31,8 @@ jobs:
   build-windows:
     needs: test
     runs-on: windows-latest
+    env:
+      PYTHONUTF8: 1
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -55,6 +59,8 @@ jobs:
   build-windows-onefile:
     needs: test
     runs-on: windows-latest
+    env:
+      PYTHONUTF8: 1
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

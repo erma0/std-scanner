@@ -2,8 +2,20 @@
 验证脚本 — 检查所有模块的导入和语法
 """
 import sys
+import os
 import ast
 from pathlib import Path
+
+# 确保 stdout/stderr 使用 UTF-8 编码（Windows CI 环境默认 cp1252 无法输出中文）
+if sys.platform == 'win32':
+    os.environ.setdefault('PYTHONUTF8', '1')
+    for stream_name in ('stdout', 'stderr'):
+        stream = getattr(sys, stream_name)
+        if hasattr(stream, 'reconfigure'):
+            try:
+                stream.reconfigure(encoding='utf-8', errors='replace')
+            except Exception:
+                pass
 
 BASE_DIR = Path(__file__).parent
 sys.path.insert(0, str(BASE_DIR))
