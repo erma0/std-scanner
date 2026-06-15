@@ -15,7 +15,11 @@ from fastapi import APIRouter, HTTPException, Request
 
 from app.scanner_engine import run_scan_pipeline
 from config.manager import load_config
-from .state import task_manager as _task_manager, scheduler_mgr as _scheduler_mgr, _main_loop, ns as _notification_service
+# 注意：不直接 from .state import _main_loop / ns —— 那会在 import 时按值快照为 None，
+# 而 state._main_loop / state.ns 在 lifespan 中才被赋值/热重载时会被重新赋值。
+# 通过模块属性按需读取，保证始终拿到最新实例。
+from . import state as _state
+from .state import task_manager as _task_manager, scheduler_mgr as _scheduler_mgr
 
 _log = logging.getLogger('std_scraper')
 
@@ -65,9 +69,10 @@ async def _do_scheduled_scan_impl(scan_type, max_results, keyword_group, job_cfg
             title = "定时扫描完成"
             content = ", ".join(ok_types)
 
-        if _notification_service:
+        ns = _state.ns
+        if ns:
             try:
-                _notification_service.send_message(title, content)
+                ns.send_message(title, content)
             except Exception as ne:
                 _log.error(f"发送定时扫描汇总通知失败: {ne}")
 
@@ -126,16 +131,17 @@ def run_scheduled_scan(job_id: str, job_config: dict):
                 _log.error(f"定时任务异常: {e}")
                 if task_id:
                     _task_manager.update(task_id, status="failed", message=str(e), end_time=time.time())
-                if _notification_service:
+                if _state.ns:
                     try:
-                        _notification_service.send_message(
+                        _state.ns.send_message(
                             "⚠️ 定时任务执行错误",
                             f"任务 {job_id} 执行失败\n\n错误信息: {str(e)[:200]}\n时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                     except Exception as ne:
                         _log.error(f"发送错误通知失败: {ne}")
 
-        if _main_loop and _main_loop.is_running():
-            asyncio.run_coroutine_threadsafe(_do_and_finish(), _main_loop)
+        main_loop = _state._main_loop
+        if main_loop and main_loop.is_running():
+            asyncio.run_coroutine_threadsafe(_do_and_finish(), main_loop)
         else:
             _log.warning("主事件循环未就绪，使用独立事件循环（回退模式）")
             new_loop = asyncio.new_event_loop()

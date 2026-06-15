@@ -323,15 +323,15 @@ async def main():
         print(f"""{APP_NAME} v{VERSION}
 
 用法:
-  python scan_all.py --pages=N             扫N条+提取hcno+下载（默认500条）
-  python scan_all.py --pages=N --scan-only  只扫描+提取hcno
-  python scan_all.py --dl-only              仅从已有JSON下载
-  python scan_all.py --incr                 增量模式
-  python scan_all.py --search=关键词         搜索并一键下载（内部API）
-  python scan_all.py --search-web=关键词     搜索并一键下载（标准检索网站）
-  python scan_all.py --scan-hb[=行业]        扫描行业标准（默认安全相关行业）
-  python scan_all.py --scan-db[=省份]        扫描地方标准（默认江苏省）
-  python scan_all.py --help                 帮助
+  python -m app.scanner.quick --pages=N             扫N条+提取hcno+下载（默认500条）
+  python -m app.scanner.quick --pages=N --scan-only  只扫描+提取hcno
+  python -m app.scanner.quick --dl-only              仅从已有JSON下载
+  python -m app.scanner.quick --incr                 增量模式
+  python -m app.scanner.quick --search=关键词         搜索并一键下载（内部API）
+  python -m app.scanner.quick --search-web=关键词     搜索并一键下载（标准检索网站）
+  python -m app.scanner.quick --scan-hb[=行业]        扫描行业标准（默认安全相关行业）
+  python -m app.scanner.quick --scan-db[=省份]        扫描地方标准（默认江苏省）
+  python -m app.scanner.quick --help                 帮助
 
 参数:
   --delay=3.0           所有请求间隔（默认3）
@@ -349,17 +349,17 @@ async def main():
                 TB TD TY WB WH WJ WM WS WW XB XF YB YC YD YJ YS YY YZ ZY
 
 示例:
-  python scan_all.py --pages=10 --delay=5
-  python scan_all.py --scan-hb                  默认安全相关行业(AQ,KA,XF,GA,LD,YJ)
-  python scan_all.py --scan-hb=AQ,XF            用行业代码指定
-  python scan_all.py --scan-hb=安全生产,化工      用汉字名称指定
-  python scan_all.py --scan-hb=all              扫描全部行业
-  python scan_all.py --scan-db                  默认江苏省
-  python scan_all.py --scan-db=浙江省            指定省份
-  python scan_all.py --scan-db=浙江省,上海市      指定多个省份
-  python scan_all.py --scan-db=all              扫描全部省份
-  python scan_all.py --scan-hb --keywords=my_kw.txt
-  python scan_all.py --search-web=消火栓 --type=国家标准
+  python -m app.scanner.quick --pages=10 --delay=5
+  python -m app.scanner.quick --scan-hb                  默认安全相关行业(AQ,KA,XF,GA,LD,YJ)
+  python -m app.scanner.quick --scan-hb=AQ,XF            用行业代码指定
+  python -m app.scanner.quick --scan-hb=安全生产,化工      用汉字名称指定
+  python -m app.scanner.quick --scan-hb=all              扫描全部行业
+  python -m app.scanner.quick --scan-db                  默认江苏省
+  python -m app.scanner.quick --scan-db=浙江省            指定省份
+  python -m app.scanner.quick --scan-db=浙江省,上海市      指定多个省份
+  python -m app.scanner.quick --scan-db=all              扫描全部省份
+  python -m app.scanner.quick --scan-hb --keywords=my_kw.txt
+  python -m app.scanner.quick --search-web=消火栓 --type=国家标准
         """)
         return
 

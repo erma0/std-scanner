@@ -1,5 +1,5 @@
 """
-{APP_NAME} - FastAPI后端 (v{VERSION})
+标准速递 - FastAPI 后端
   - 路由按功能拆分为子模块 (routes/)
   - 验证码重试（可配置）
   - 任务持久化 + 日志系统
@@ -177,8 +177,9 @@ async def health_check():
     db_ok = True
     db_count = 0
     try:
+        # 不在每次健康检查都调 ensure_db()（启动时 TaskManager 已初始化）；
+        # count_tasks 在表缺失/DB 损坏时会抛异常，由这里捕获并标记 db_ok=False
         import app.database as database
-        database.ensure_db()
         db_count = database.count_tasks()
     except Exception:
         db_ok = False

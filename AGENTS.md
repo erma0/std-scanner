@@ -1,4 +1,4 @@
-# Agent 上下文文档 — 标准速递 v3.9.1
+# Agent 上下文文档 — 标准速递 v1.0.0
 
 > 本文档供 AI 助手理解项目全貌。用户文档见 `README.md`。
 > 如果你是 Trae Solo 或其他 AI 编程助手，以下是你需要知道的全部。
@@ -120,10 +120,25 @@ AJAX API (POST):
 ├── main.py                    # 桌面入口（pywebview 窗口 + 系统托盘）
 ├── ui.html                    # WebUI 界面（单文件 SPA）
 ├── version.py                 # 版本号集中管理（唯一来源）
-├── verify_scripts.py          # 脚本语法验证
-├── sync_agents.py             # AGENTS.md 自动同步脚本
+├── verify_scripts.py          # 模块导入 + 语法验证（CI 用）
+├── build.py                   # PyInstaller 打包脚本（CI 用）
 ├── AGENTS.md / README.md      # 文档
 ├── requirements.txt           # Python 依赖清单
+├── ruff.toml                  # Ruff 代码检查配置
+├── package.json               # 前端资源构建脚本（Tailwind CSS 编译）
+│
+├── .github/workflows/         # CI（ci.yml：语法检查+测试+PyInstaller 编译+Release）
+├── src/tailwind.css           # Tailwind 源文件（npm run build:css 编译到 static/css/app.css）
+├── static/                    # 静态资源（FastAPI 挂载到 /static，打包时随 exe 分发）
+│   ├── css/app.css            # 编译后的应用样式（由 src/tailwind.css 生成，勿手改）
+│   ├── css/font-awesome.min.css + fonts/   # 图标字体
+│   ├── icon.ico / icon_64.png / logo.svg   # 应用图标/Logo
+│   └── loading.html           # 启动加载页（pywebview 窗口首屏，API 就绪后自动跳转）
+├── tests/                     # 单元测试（pytest，CI 运行）
+│   ├── test_checkpoint.py / test_database.py / test_dedup.py
+│   └── test_helpers.py / test_keywords.py / test_scanner_engine.py
+├── tools/                     # 独立辅助工具（不参与应用运行，不被任何模块导入）
+│   └── analyze_dup.py         # PDF 目录重复/近重复分析（CLI，可双击运行）
 │
 ├── config/                    # 配置层 — 零业务依赖，被所有模块安全导入
 │   ├── paths.py               # 路径集中管理（~/.std_scanner/）
@@ -681,7 +696,7 @@ fetch_stdpage_search(query, page, std_type)
 
 ## 修改记录（最近版本）
 
-### v3.9.1 — 当前版本
+### v1.0.0 — 当前版本
 
 - 完整的国标/行标/地标扫描+下载链路
 - 安全关键词多组管理（113 预设词 + 6 排除词）

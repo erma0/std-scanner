@@ -31,8 +31,8 @@ playwright install chromium
 # 桌面应用（推荐）
 python main.py
 
-# 仅启动 API 服务
-python -m app.server
+# 仅启动 API 服务（不依赖 pywebview，可浏览器访问）
+python -m uvicorn app.server:app --host 127.0.0.1 --port 8000
 # 浏览器访问 http://127.0.0.1:8000
 ```
 
@@ -63,18 +63,34 @@ python -m app.scanner.quick --scan-db=all           # 全部省份
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `--pages=N` | 采集条数（每页 50 条，自动计算页数） | 500 |
+| `--pages=N` | 国标采集条数（每页 50 条，自动计算页数） | 500 |
+| `--max-pages=N` | 扫描最大条数（HB/DB 通用） | 500 |
 | `--scan-only` | 只扫描不下载 | — |
-| `--dl-only` | 仅从已有数据下载 | — |
+| `--dl-only` | 仅从已有 `safety_full.json` 下载 | — |
 | `--incr` | 增量模式（断点续扫） | — |
 | `--search=关键词` | 搜索下载（内部 API） | — |
-| `--search-web=关键词` | 搜索下载（检索网站） | — |
+| `--search-web=关键词` | 搜索下载（标准检索网站） | — |
 | `--scan-hb[=行业]` | 扫描行业标准 | 安全相关 |
 | `--scan-db[=省份]` | 扫描地方标准 | 江苏省 |
-| `--type=类型` | 标准类型 | 国家标准 |
-| `--max=N` | 搜索最大数量 | 5 |
+| `--type=类型` | 标准类型，仅 `--search-web` 时生效：国家标准/行业标准/地方标准/国家标准计划 | 国家标准 |
+| `--max=N` | 搜索最大数量，仅 `--search-web` 时生效 | 5 |
+| `--keywords=PATH` | 从文件加载关键词（每行一个，`#` 注释） | — |
 | `--delay=N` | 请求间隔（秒） | 3 |
 | `--output-dir=PATH` | PDF 存放路径 | ~/Downloads/安全标准 |
+
+## 辅助工具
+
+`tools/analyze_dup.py` 是独立的 PDF 目录重复分析脚本（不参与应用运行，也不被任何模块导入），用于排查已下载标准库中的重复 / 近重复文件：
+
+```bash
+# 分析指定目录（默认硬编码本地路径，建议传参）
+python tools/analyze_dup.py "D:\标准规范"
+
+# 导出结果
+python tools/analyze_dup.py "D:\标准规范" --output csv   # 或 json
+```
+
+输出三类结果：精确重复（同大小+同内容）、同编号不同文件名、文件名异常（双扩展名 / 特殊连字符 / GBT 格式等）。
 
 ## 标准类型下载说明
 
@@ -126,6 +142,7 @@ python -m app.scanner.quick --scan-db=all           # 全部省份
 
 | 版本 | 更新内容 |
 |------|---------|
+| v1.0.0 | 当前版本（详见 [AGENTS.md](AGENTS.md) 修改记录） |
 | v3.9.1 | 性能优化(save_task_light)、GB下载重构(showGb→verifyCode→viewGb)、hcno智能提取、PDF类型验证、端口冲突修复 |
 | v3.9.0 | Targeted DOM Update 消除 UI 抖动、std_items 全量持久化、清理策略可配置(时长+数量上限) |
 | v3.8.0 | 下载状态实时推送(SSE)、per-item 重试/批量重试、扫描中间结果推送、预览禁用识别 |

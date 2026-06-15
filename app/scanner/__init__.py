@@ -1,4 +1,4 @@
-"""标准速递 — 扫描+下载核心模块 (v3.9.1)
+"""标准速递 — 扫描+下载核心模块 (v1.0.0)
 
 子模块:
   preview    - launch_browser, preview_to_pdf

@@ -1,6 +1,6 @@
 """
-{APP_NAME} - FastAPI 后端入口
-v{VERSION} — 路由已拆分到 app/routes/ 子包，本文件为兼容性导出层。
+标准速递 - FastAPI 后端入口
+路由已拆分到 app/routes/ 子包，本文件为兼容性导出层。
 """
 from version import VERSION, APP_NAME  # noqa: F401 — re-exported via __all__
 

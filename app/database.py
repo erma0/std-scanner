@@ -105,6 +105,7 @@ def init_db():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(task_type)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_notification_logs_task_id ON notification_logs(task_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_notification_logs_created_at ON notification_logs(created_at)')
 
         for col, col_type in [('paused_duration', 'REAL DEFAULT 0'), ('paused_at', 'REAL'),
                                 ('std_items', 'TEXT'), ('keyword_group', 'TEXT'),
@@ -299,16 +300,13 @@ def get_all_tasks(status_filter: Optional[str] = None) -> List[Dict]:
 
 
 def count_tasks() -> int:
-    """获取任务总数"""
+    """获取任务总数。DB 异常向上抛出，由调用方决定如何上报健康状态。"""
     conn = _get_conn()
     with _db_lock:
-        try:
-            cursor = conn.cursor()
-            cursor.execute('SELECT COUNT(*) FROM tasks')
-            row = cursor.fetchone()
-            return row[0] if row else 0
-        except Exception:
-            return 0
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM tasks')
+        row = cursor.fetchone()
+        return row[0] if row else 0
 
 
 def delete_task(task_id: str) -> bool:
@@ -406,23 +404,6 @@ def log_notification(task_id: Optional[str], channel: str, title: str,
             task_id, channel, title, content, status, error_message, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (task_id, channel, title, content, status, error_message, now))
-
-
-def get_notification_logs(task_id: str) -> List[Dict]:
-    """获取任务的通知记录"""
-    conn = _get_conn()
-    with _db_lock:
-        orig_factory = conn.row_factory
-        conn.row_factory = sqlite3.Row
-        try:
-            cursor = conn.cursor()
-            cursor.execute('''
-            SELECT * FROM notification_logs WHERE task_id = ? ORDER BY created_at DESC
-            ''', (task_id,))
-            rows = cursor.fetchall()
-            return [dict(row) for row in rows]
-        finally:
-            conn.row_factory = orig_factory
 
 
 def cleanup_notification_logs(max_age_days: int = 30) -> int:

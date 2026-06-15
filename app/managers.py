@@ -167,7 +167,7 @@ class TaskManager:
             stats = task['stats']
             for key, amount in increments.items():
                 stats[key] = (stats.get(key) or 0) + amount
-        self._persist(task_id)
+            self._persist_locked(task_id)
         return True
 
     def create_with_priority(self, task_id: str, task_data: Dict, priority: int = 0) -> Dict:
@@ -348,38 +348,53 @@ class SchedulerManager:
     def save_jobs(self):
         """立即保存定时任务到 config.json"""
         with self._lock:
-            config = load_config()
-            config['scheduled_jobs'] = dict(self._jobs)
-            save_config(config)
-            self._dirty = False
-            self._last_save_time = time.time()
+            self._save_jobs_locked()
 
-    def _mark_dirty(self):
-        """标记为脏，延迟保存（5 秒内只写一次磁盘）"""
+    def _save_jobs_locked(self):
+        """保存实现（调用方须已持有 self._lock）"""
+        config = load_config()
+        config['scheduled_jobs'] = dict(self._jobs)
+        save_config(config)
+        self._dirty = False
+        self._last_save_time = time.time()
+
+    def _mark_dirty_locked(self):
+        """标记为脏，并在距上次保存超过 5 秒时立即落盘（调用方须已持有 self._lock）。
+        读写 _dirty / _last_save_time 必须在锁内，避免与并发 add/remove 竞态。
+        """
         self._dirty = True
-        now = time.time()
-        if now - self._last_save_time >= 5:
-            self.save_jobs()
+        if time.time() - self._last_save_time >= 5:
+            self._save_jobs_locked()
 
     def add_job(self, job_id: str, job_config: Dict, run_fn=None):
         if not self._available or not self._scheduler:
             return False
         with self._lock:
+            # 先校验 cron 表达式（即使任务未启用也要保证可调度），避免坏 cron 残留在内存/配置中
+            cron = job_config.get('cron', '0 8 * * *')
+            try:
+                self._CronTrigger.from_crontab(cron)
+            except Exception as e:
+                logger.error(f"定时任务 cron 表达式无效: {job_id} cron={cron!r}: {e}")
+                return False
+
             self._jobs[job_id] = job_config
             if job_config.get('enabled', False) and run_fn:
                 try:
                     self._scheduler.add_job(
                         run_fn,
-                        self._CronTrigger.from_crontab(job_config.get('cron', '0 8 * * *')),
+                        self._CronTrigger.from_crontab(cron),
                         id=job_id,
                         args=[job_id, job_config],
                         replace_existing=True
                     )
                     logger.info(f"定时任务已添加: {job_id}")
                 except Exception as e:
+                    # 调度失败：回滚内存中的插入，避免 GET 接口返回无法调度的僵尸任务
+                    self._jobs.pop(job_id, None)
                     logger.error(f"添加定时任务失败: {job_id}, {e}")
                     return False
-        self._mark_dirty()
+            self._mark_dirty_locked()
         return True
 
     def remove_job(self, job_id: str) -> bool:
@@ -392,7 +407,7 @@ class SchedulerManager:
                 except Exception:
                     pass
             del self._jobs[job_id]
-        self._mark_dirty()
+            self._mark_dirty_locked()
         return True
 
     def update_job(self, job_id: str, job_config: Dict, run_fn=None):
@@ -440,7 +455,7 @@ class SchedulerManager:
                     self._scheduler.remove_job(job_id)
                 except Exception:
                     pass
-        self._mark_dirty()
+            self._mark_dirty_locked()
         return True
 
 

@@ -1,6 +1,6 @@
 {
   "name": "std-scanner",
-  "version": "3.9.1",
+  "version": "1.0.0",
   "description": "标准速递 - 前端资源构建",
   "scripts": {
     "build:css": "npx @tailwindcss/cli -i src/tailwind.css -o static/css/app.css --minify",

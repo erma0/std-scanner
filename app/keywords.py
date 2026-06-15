@@ -178,10 +178,6 @@ def set_active_group(name: str = '安全生产'):
     _tls.active_group = name
 
 
-def get_active_group() -> str:
-    return getattr(_tls, 'active_group', '安全生产')
-
-
 def _get_active_config() -> dict:
     """获取当前活跃组的完整配置"""
     groups = _load_groups_from_config()

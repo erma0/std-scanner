@@ -45,6 +45,7 @@ async def scan_pages(max_results=500, incr=False, keyword_group=None, on_progres
 
     _log.info(f"[SCAN] 最大采集: {max_results}条 (最多{max_pages}页), 增量: {incr}")
 
+    p = 0  # 初始化，避免 max_results=0 时循环不执行导致下方引用未定义
     for p in range(1, max_pages + 1):
         if check_pause:
             if not await check_pause():
