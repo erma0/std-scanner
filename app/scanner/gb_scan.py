@@ -205,37 +205,47 @@ async def download_phase(standards, existing=None, allow_preview_override=None, 
 
     if existing is None:
         existing = get_existing_files()
-    to_process = [s for s in standards if s.get('hcno') and (not s.get('dlStatus') or s['dlStatus'] not in ('downloaded', 'skipped_existing', 'previewed'))]
 
-    if not to_process:
-        _log.info("[DL] 无需下载")
-        return
-
-    _log.info(f"[DL] 待处理: {len(to_process)} (已有文件: {len(existing)})")
+    _log.info(f"[DL] 待处理: {len([s for s in standards if s.get('hcno')])} (总匹配: {len(standards)}, 已有文件: {len(existing)})")
+    _total = len(standards)
 
     browser_ctx = None
     playwright_mgr = None
 
     stats = {'downloaded': 0, 'skipped_existing': 0, 'skipped_nodl': 0, 'previewed': 0, 'failed': 0}
     try:
-        for i, s in enumerate(to_process):
+        for i, s in enumerate(standards):
             if check_pause:
                 if not await check_pause():
                     _log.info("下载被中止（暂停/删除）")
                     break
+
+            # 跳过无 hcno 项（no_hcno / failed_hcno）但仍汇报进度
+            if not s.get('hcno'):
+                if on_item_done:
+                    await on_item_done(s.get('stdName', ''))
+                continue
+
+            # 跳过已下载/已存在的项
+            dl = s.get('dlStatus')
+            if dl in ('downloaded', 'skipped_existing', 'previewed'):
+                if on_item_done:
+                    await on_item_done(s.get('stdName', ''))
+                continue
+
             idx = i + 1
+            hcno = s['hcno']
+            display = f"{s['stdCode'][:20]} {s['stdName'][:25]}"
+
+            # 检查文件是否已存在
             filename = make_filename(s['stdCode'], s['stdName'])
             filepath = output_dir / filename
-
             if filename in existing:
                 s['dlStatus'] = 'skipped_existing'
                 stats['skipped_existing'] += 1
                 if on_item_done:
                     await on_item_done(s.get('stdName', ''))
                 continue
-
-            hcno = s['hcno']
-            display = f"{s['stdCode'][:20]} {s['stdName'][:25]}"
 
             try:
                 # 检测详情页按钮（正则匹配 <button> 元素，排除 JS 选择器引用）
@@ -253,7 +263,7 @@ async def download_phase(standards, existing=None, allow_preview_override=None, 
 
                 if can_dl:
                     # 有下载按钮 → 直接下载
-                    _log.info(f"   [{idx}/{len(to_process)}] {display}... DOWN")
+                    _log.info(f"   [{idx}/{len(standards)}] {display}... DOWN")
                     pdf_data = await asyncio.get_running_loop().run_in_executor(
                         None, download_with_captcha, hcno)
                     if pdf_data:
@@ -271,7 +281,7 @@ async def download_phase(standards, existing=None, allow_preview_override=None, 
 
                 elif can_preview:
                     # 仅预览按钮（无下载按钮）→ 预览下载
-                    _log.info(f"   [{idx}/{len(to_process)}] {display}... PREV")
+                    _log.info(f"   [{idx}/{len(standards)}] {display}... PREV")
                     if not browser_ctx:
                         playwright_mgr, browser_ctx = await launch_browser()
                     success = await preview_to_pdf(hcno, str(filepath), browser_ctx)
@@ -310,7 +320,7 @@ async def download_phase(standards, existing=None, allow_preview_override=None, 
             await asyncio.sleep(DELAY)
 
             if on_progress:
-                await on_progress(min(99, int(100 * idx / len(to_process))), f"处理中 {idx}/{len(to_process)}")
+                await on_progress(min(99, int(100 * idx / _total)), f"处理中 {idx}/{_total}")
     finally:
         # 浏览器泄漏防护：无论正常结束还是异常退出，都确保关闭 Playwright
         if playwright_mgr:
