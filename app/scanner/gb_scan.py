@@ -91,7 +91,7 @@ async def scan_pages(max_results=500, incr=False, keyword_group=None, on_progres
         _log.info(f"第{p}页: +{cnt} 条, 累计 {len(all_standards)}")
 
         if on_progress:
-            await on_progress(min(99, int(100 * p / max_pages)), f"扫描第{p}/{max_pages}页 ({len(all_standards)}条)")
+            await on_progress(min(99, int(100 * p / max_pages)), f"扫描第{p}/{max_pages}页")
 
         if on_intermediate and all_standards:
             await on_intermediate(list(all_standards))
