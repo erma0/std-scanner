@@ -56,7 +56,6 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
     task_ids = []
     for st in scan_types:
         tid = f"{st}_{ts}"
-        type_configs.get(st, {})
 
         task_manager.create(tid, {
             "task_id": tid,
@@ -125,8 +124,8 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
                 return {'ok': False, 'st': st, 'error': str(e)[:200]}
 
         results = []
-        for st in scan_types:
-            r = await _run_one(st, f"{st}_{ts}")
+        for st, tid in zip(scan_types, task_ids):
+            r = await _run_one(st, tid)
             results.append(r)
 
         # 汇总日志

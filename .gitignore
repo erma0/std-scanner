@@ -3,6 +3,10 @@ __pycache__/
 *.pyc
 *.pyo
 
+# 工具缓存
+.pytest_cache/
+.ruff_cache/
+
 # 扫描运行时代理
 scan_ckpt.json
 safety_full.json

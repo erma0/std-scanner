@@ -1,7 +1,7 @@
 # Agent 上下文文档 — 标准速递 v1.0.0
 
 > 本文档供 AI 助手理解项目全貌。用户文档见 `README.md`。
-> 如果你是 Trae Solo 或其他 AI 编程助手，以下是你需要知道的全部。
+> 如果你是 CodeBuddy 或其他 AI 编程助手，以下是你需要知道的全部。
 
 ---
 
@@ -685,7 +685,7 @@ fetch_stdpage_search(query, page, std_type)
 - **CORS 不是 `*`**：只允许 127.0.0.1:8000 和 localhost:8000
 - **keyword_group 默认 '安全生产'**：所有扫描端点都有此参数，前端可能传 '默认' 或 '安全生产'
 - **老 API `/api/keywords` PUT**：接受的是 dict `{"keywords": [...]}`，内部保持 dict 结构而非覆写为 list
-- **checkpoint 格式**：gb 用 `first_id`，hb/db 用 `first_pk`，不要搞混
+- **checkpoint 格式**：gb 用 `first_code`+`first_id`，hb/db 用 `first_code`+`first_name`+`page`
 - **去重**：`dedup.py` 已从 notifier.py 独立出来，文件监控功能也在此
 - **定时任务**：创建独立事件循环，不要复用主循环。所有类型强制 `incr=True`。扫描结果会自动持久化并下载
 - **联合扫描**：`max_results` 每种类型各自拿这么多，不是按类型数均分

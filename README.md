@@ -21,7 +21,10 @@
 ### 安装依赖
 
 ```bash
+# 核心依赖
 pip install -r requirements.txt
+
+# 浏览器预览转PDF（可选功能，不装则仅支持直接下载）
 playwright install chromium
 ```
 

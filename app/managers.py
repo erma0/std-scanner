@@ -291,10 +291,6 @@ class TaskManager:
             except Exception as e:
                 logger.warning(f"SQLite 轻量同步失败: {e}")
 
-    def _persist(self, task_id: str):
-        with self._lock:
-            self._persist_locked(task_id)
-
 
 class SchedulerManager:
     """定时任务调度管理器"""

@@ -5,6 +5,8 @@
 import os
 import sys
 import time
+import asyncio
+import signal
 import threading
 import webbrowser
 import httpx
@@ -14,7 +16,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import app.server as api_module
-import asyncio
 
 try:
     import webview
@@ -173,8 +174,6 @@ def main():
 
     # 启动前检测端口占用
     _kill_port_occupant()
-
-    import signal
 
     def _signal_handler(sig, frame):
         _shutdown()

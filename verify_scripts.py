@@ -66,7 +66,7 @@ print("=" * 50)
 # 纯导入验证
 verify_import("version", ["VERSION", "APP_NAME"])
 verify_import("config.paths", ["CONFIG_DIR", "DB_PATH", "DATA_FILE", "CKPT_FILE", "migrate_old_data"])
-verify_import("app.helpers", ["setup_logger", "get_logger", "safe_filename", "format_duration", "validate_path"])
+verify_import("app.helpers", ["setup_logger", "get_logger", "safe_filename", "format_duration", "validate_path", "normalize_code", "atomic_write"])
 verify_import("app.keywords", ["load_keywords", "is_safety", "is_aq_yj", "clean_name"])
 verify_import("app.captcha", ["solve_captcha"])
 verify_import("config.settings", ["OUTPUT_DIR", "DELAY", "HB_CODE_MAP", "HB_SAFETY_CODES", "http_client", "get_output_dir"])
