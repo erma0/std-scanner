@@ -3257,16 +3257,17 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
         function getDlStatusLabel(dlStatus) {
             const map = {
-                'downloaded':       { text: '下载成功', cls: 'text-green-600', icon: 'fa-check-circle' },
-                'previewed':        { text: '预览下载', cls: 'text-blue-600', icon: 'fa-file-pdf-o' },
-                'skipped_existing': { text: '重复跳过', cls: 'text-gray-400', icon: 'fa-check' },
+                'downloaded':       { text: '已下载', cls: 'text-green-600', icon: 'fa-check-circle' },
+                'previewed':        { text: '预览合成', cls: 'text-blue-600', icon: 'fa-file-pdf-o' },
+                'skipped_existing': { text: '已存在', cls: 'text-gray-400', icon: 'fa-check' },
                 'copyright':        { text: '版权保护', cls: 'text-orange-400', icon: 'fa-lock' },
                 'preview_disabled': { text: '预览未启用', cls: 'text-gray-400', icon: 'fa-ban' },
-                'no_fulltext':      { text: '不可下载', cls: 'text-gray-400', icon: 'fa-file-o' },
-                'failed':           { text: '下载失败', cls: 'text-red-600', icon: 'fa-times-circle' },
-                'failed_captcha':   { text: '下载失败', cls: 'text-red-600', icon: 'fa-times-circle' },
-                'failed_preview':   { text: '预览失败', cls: 'text-red-600', icon: 'fa-times-circle' },
-                'failed_hcno':      { text: 'hcno失败', cls: 'text-red-600', icon: 'fa-times-circle' },
+                'no_fulltext':      { text: '无全文', cls: 'text-gray-400', icon: 'fa-file-o' },
+                'no_hcno':          { text: '未发布', cls: 'text-yellow-500', icon: 'fa-clock-o' },
+                'failed':           { text: '网络错误', cls: 'text-red-600', icon: 'fa-times-circle' },
+                'failed_captcha':   { text: '验证码失败', cls: 'text-red-600', icon: 'fa-times-circle' },
+                'failed_preview':   { text: '预览拼接失败', cls: 'text-red-600', icon: 'fa-times-circle' },
+                'failed_hcno':      { text: '无法提取hcno', cls: 'text-red-600', icon: 'fa-times-circle' },
             };
             if (!dlStatus) return { text: '待下载', cls: 'text-yellow-500', icon: 'fa-clock-o' };
             if (map[dlStatus]) return map[dlStatus];
@@ -3304,7 +3305,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     const isFailed = s.dlStatus === 'failed' || (s.dlStatus && (s.dlStatus.startsWith('failed_') || s.dlStatus.startsWith('error:')));
                     const isPending = !s.dlStatus;
                     const lbl = getDlStatusLabel(s.dlStatus);
-                    const dlBadge = `<span class="${lbl.cls}" title="${lbl.text}"><i class="fa ${lbl.icon}"></i><span class="ml-0.5 text-[9px]">${lbl.text}</span></span>`;
+                    const dlTooltip = s.dlStatus && (s.dlStatus.startsWith('failed') || s.dlStatus.startsWith('error'))
+                        ? `${lbl.text} (${s.dlStatus})` : lbl.text;
+                    const dlBadge = `<span class="${lbl.cls}" title="${dlTooltip}"><i class="fa ${lbl.icon}"></i><span class="ml-0.5 text-[9px]">${lbl.text}</span></span>`;
 
                     const retryBtn = (isFailed || isPending) ? `<button class="ml-1 text-[10px] text-cyan-500 hover:text-cyan-700" onclick="event.stopPropagation();retrySingleItem('${task.task_id}', ${globalIdx})" title="${isFailed ? '重试下载' : '下载'}"><i class="fa fa-${isFailed ? 'refresh' : 'download'}"></i></button>` : '';
 
