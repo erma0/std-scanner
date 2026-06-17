@@ -123,10 +123,9 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
                                   end_time=time.time())
                 return {'ok': False, 'st': st, 'error': str(e)[:200]}
 
-        results = []
-        for st, tid in zip(scan_types, task_ids):
-            r = await _run_one(st, tid)
-            results.append(r)
+        results = await asyncio.gather(
+            *[_run_one(st, tid) for st, tid in zip(scan_types, task_ids)]
+        )
 
         # 汇总日志
         ok_types = []
