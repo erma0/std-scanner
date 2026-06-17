@@ -3275,6 +3275,17 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             return { text: dlStatus, cls: 'text-gray-300', icon: 'fa-question' };
         }
 
+        function getStdUrl(s, task) {
+            const t = task && task.std_type;
+            if (t === 'gb' && s.id) {
+                return 'https://std.samr.gov.cn/gb/search/gbDetailed?id=' + s.id;
+            } else if ((t === 'hb' || t === 'db') && s.pk) {
+                const domain = t === 'hb' ? 'hbba' : 'dbba';
+                return 'https://' + domain + '.sacinfo.org.cn/stdDetail/' + s.pk;
+            }
+            return null;
+        }
+
         const DETAIL_PAGE_SIZE = 20;
 
         function renderTaskDetail(task) {
@@ -3297,9 +3308,15 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
                     const retryBtn = (isFailed || isPending) ? `<button class="ml-1 text-[10px] text-cyan-500 hover:text-cyan-700" onclick="event.stopPropagation();retrySingleItem('${task.task_id}', ${globalIdx})" title="${isFailed ? '重试下载' : '下载'}"><i class="fa fa-${isFailed ? 'refresh' : 'download'}"></i></button>` : '';
 
+                    const url = getStdUrl(s, task);
+                    const cellText = (val) => val || '-';
+                    const linkTag = (text, cls) => url
+                        ? `<a href="${url}" target="_blank" class="${cls} hover:text-blue-600 hover:underline" onclick="event.stopPropagation()">${cellText(text)}</a>`
+                        : `<span class="${cls}">${cellText(text)}</span>`;
+
                     return `<tr class="border-b border-gray-50 hover:bg-gray-50/50">
-                        <td class="py-1 px-1.5 whitespace-nowrap"><span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono text-gray-500 bg-gray-100">${s.stdCode || '-'}</span></td>
-                        <td class="py-1 px-1.5 text-[10px] text-gray-700">${s.stdName || '-'}</td>
+                        <td class="py-1 px-1.5 whitespace-nowrap">${linkTag(s.stdCode, 'inline-block px-1.5 py-0.5 rounded text-[10px] font-mono text-gray-500 bg-gray-100')}</td>
+                        <td class="py-1 px-1.5 text-[10px] text-gray-700">${linkTag(s.stdName, 'text-[10px] text-gray-700')}</td>
                         <td class="py-1 px-1.5 text-[10px] text-gray-400 whitespace-nowrap">${s.stdNature || '-'}</td>
                         <td class="py-1 px-1.5 text-[10px] whitespace-nowrap">${s.state === '现行' ? '<span class="inline-block px-1 rounded text-[10px] text-green-700 bg-green-50">现行</span>' : s.state === '废止' ? '<span class="inline-block px-1 rounded text-[10px] text-red-600 bg-red-50">废止</span>' : s.state || '-'}</td>
                         <td class="py-1 px-1.5 text-[10px] text-gray-400 whitespace-nowrap">${s.issueDate || '-'}</td>
