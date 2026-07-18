@@ -3,22 +3,21 @@ from fastapi import APIRouter, HTTPException, Request
 import time
 import asyncio
 import logging
-import re
 
-from app.helpers import atomic_write
-
-from .state import task_manager
 from ._utils import launch_task as _launch_task, update_task_status
+from .state import task_manager
 from app.scanner import (
-    download_with_captcha, download_hb_with_captcha,
+    download_with_captcha, download_hb_with_captcha, CopyrightError,
     fetch_stdpage_search, check_downloadable,
     check_hb_downloadable, get_detail_url_by_tid,
     preview_to_pdf, launch_browser,
     make_filename,
 )
-from app.scanner.gb_scan import _RE_XZ_BTN, _RE_CK_BTN
+from app.scanner.download_helpers import (
+    detect_download_buttons, extract_hcno_from_html, fetch_and_save_pdf,
+)
 from app.dedup import get_existing_files, add_to_existing_files_cache
-from config.settings import OPENSTD, DETAIL_URL, get_output_dir, DELAY, http_client
+from config.settings import OPENSTD, DETAIL_URL, get_output_dir, get_delay, http_client
 
 _log = logging.getLogger('std_scraper')
 
@@ -77,7 +76,7 @@ async def search_download_selected_api(request: Request):
         "task_id": task_id,
         "status": "running",
         "progress": 0,
-        "message": f"正在下载 {len(items)} 个标准",
+        "message": f"下载中 {len(items)} 个标准",
         "stats": {"downloaded": 0, "success": 0, "failed": 0, "skipped": 0},
         "start_time": time.time(),
         "std_type": "search",
@@ -90,7 +89,7 @@ async def search_download_selected_api(request: Request):
             await _download_selected_items(task_id, items)
 
             update_task_status(task_id, progress=100, status="completed",
-                             message=f"下载完成，共处理 {len(items)} 个标准")
+                             message=f"下载完成({len(items)}个标准)")
             task_manager.update(task_id, end_time=time.time())
             _log.info(f"任务 {task_id}: 完成")
         except Exception as e:
@@ -148,65 +147,70 @@ async def _download_selected_items(task_id, items):
 
                     site_type = 'hb' if 'hbba' in pattern else 'db'
                     _log.info(f"  [DOWN] 下载中（{'行业' if site_type == 'hb' else '地方'}标准）...")
-                    pdf_data = await asyncio.get_running_loop().run_in_executor(
-                        None, download_hb_with_captcha, hb_hash, site_type
-                    )
+                    out_dir = get_output_dir()
+                    filepath = out_dir / filename
+                    try:
+                        pdf_data = await asyncio.get_running_loop().run_in_executor(
+                            None, fetch_and_save_pdf,
+                            lambda: download_hb_with_captcha(hb_hash, site_type),
+                            filepath, filename, out_dir,
+                        )
+                    except CopyrightError as ce:
+                        _log.info(f"  [COPY] 版权限制: {ce}")
+                        task_manager.increment_stats(task_id, skipped=1)
+                        continue
                     if pdf_data:
-                        filepath = get_output_dir() / filename
-                        atomic_write(str(filepath), pdf_data, dir_=str(get_output_dir()))
                         _log.info(f"  [OK] {filepath} ({len(pdf_data)/1024:.0f}KB)")
                         task_manager.increment_stats(task_id, success=1, downloaded=1)
-                        add_to_existing_files_cache(filename)
                     else:
-                        _log.info("  [FAIL] 验证码下载失败")
+                        _log.info("  [FAIL] 下载失败")
                         task_manager.increment_stats(task_id, failed=1)
+                        await asyncio.sleep(get_delay())
                 except Exception as e:
                     _log.error(f"  [ERROR] {e}")
                     task_manager.increment_stats(task_id, failed=1)
+                    await asyncio.sleep(get_delay())
             else:
                 try:
                     loop = asyncio.get_running_loop()
                     resp = await loop.run_in_executor(None, http_client.get, detail_url)
                     resp.raise_for_status()
-                    m = re.search(r'newGbInfo\?hcno=([A-Fa-f0-9]+)', resp.text)
-                    if not m:
+                    hcno = extract_hcno_from_html(resp.text)
+                    if not hcno:
                         _log.info("  [WARN] 未找到 hcno，跳过")
                         task_manager.increment_stats(task_id, skipped=1)
                         continue
-                    hcno = m.group(1)
                 except Exception as e:
                     _log.error(f"  [ERROR] 获取详情页失败: {e}")
                     task_manager.increment_stats(task_id, failed=1)
                     continue
 
-                filepath = get_output_dir() / filename
+                out_dir = get_output_dir()
+                filepath = out_dir / filename
 
                 try:
                     detail_url2 = f"{OPENSTD}/gb/newGbInfo?hcno={hcno}"
                     resp2 = await asyncio.get_running_loop().run_in_executor(
                         None, lambda: http_client.get(detail_url2))
                     resp2.raise_for_status()
-                    html = resp2.text
-                    has_download = bool(_RE_XZ_BTN.search(html))
-                    has_preview = bool(_RE_CK_BTN.search(html))
-                    copyright = '涉及版权保护' in html or '不提供在线阅读' in html or ('ISO、IEC' in html and '版权保护' in html)
-                    can_dl_btn = has_download and not copyright
-                    can_preview = has_preview and not copyright
+                    btns = detect_download_buttons(resp2.text)
 
-                    if can_dl_btn:
+                    if btns.can_download:
                         _log.info("  [DOWN] 下载中...")
                         pdf_data = await asyncio.get_running_loop().run_in_executor(
-                            None, download_with_captcha, hcno)
+                            None, fetch_and_save_pdf,
+                            lambda: download_with_captcha(hcno),
+                            filepath, filename, out_dir,
+                        )
                         if pdf_data:
-                            atomic_write(str(filepath), pdf_data, dir_=str(get_output_dir()))
                             _log.info(f"  [OK] {filepath} ({len(pdf_data)/1024:.0f}KB)")
                             task_manager.increment_stats(task_id, success=1, downloaded=1)
-                            add_to_existing_files_cache(filename)
                         else:
-                            _log.info("  [FAIL] 验证码下载失败")
+                            _log.info("  [FAIL] 下载失败")
                             task_manager.increment_stats(task_id, failed=1)
+                            await asyncio.sleep(get_delay())
 
-                    elif can_preview:
+                    elif btns.can_preview:
                         from app.scanner.preview import PLAYWRIGHT_AVAILABLE
                         from config.manager import load_config
                         if not (load_config().get('download', {}).get('allow_preview', True) and PLAYWRIGHT_AVAILABLE):
@@ -224,15 +228,15 @@ async def _download_selected_items(task_id, items):
                             else:
                                 _log.info("  [FAIL] 预览失败")
                                 task_manager.increment_stats(task_id, failed=1)
+                                await asyncio.sleep(get_delay())
                     else:
-                        _log.info("  [NOBTN] 无下载/预览按钮" + ("(版权受限)" if copyright else ""))
+                        _log.info("  [NOBTN] 无下载/预览按钮" + ("(版权受限)" if btns.copyright else ""))
                         task_manager.increment_stats(task_id, skipped=1)
 
                 except Exception as e:
                     _log.error(f"  [ERROR] {e}")
                     task_manager.increment_stats(task_id, failed=1)
-
-            await asyncio.sleep(DELAY)
+                    await asyncio.sleep(get_delay())
     finally:
         if playwright_mgr:
             try:

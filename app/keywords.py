@@ -271,8 +271,9 @@ def is_safety(text: str, std_type: str = None) -> bool:
     try:
         matcher = _get_matcher(group_name)
         return matcher.is_safety(t, std_type)
-    except Exception:
+    except Exception as e:
         # 回退到简单匹配（防止正则编译失败）
+        _log.debug(f"正则匹配失败，回退到简单匹配: {e}")
         cfg = _get_active_config()
         for ex in cfg.get('excludes', []):
             if ex and ex in t:

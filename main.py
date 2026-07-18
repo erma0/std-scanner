@@ -5,7 +5,6 @@
 import os
 import sys
 import time
-import asyncio
 import signal
 import threading
 import webbrowser
@@ -61,8 +60,9 @@ def wait_for_api(max_retries=30, interval=0.5):
             if resp.status_code == 200:
                 print(f"[INFO] API服务已就绪 (等待{i * interval:.1f}秒)")
                 return True
-        except Exception:
-            pass
+        except Exception as e:
+            if i == 0:
+                print(f"[DEBUG] 等待 API 启动: {e}")
         time.sleep(interval)
     print("[WARN] API服务启动超时，继续尝试...")
     return False
@@ -76,7 +76,8 @@ def start_api_server():
         host=_SERVER_HOST,
         port=_SERVER_PORT,
         log_level="info",
-        timeout_graceful_shutdown=0,
+        # 给 lifespan yield 之后的清理代码（sse_close_all/scheduler.shutdown/...）足够时间执行
+        timeout_graceful_shutdown=5,
     )
     api_server = uvicorn.Server(config)
     api_server.run()
@@ -144,28 +145,46 @@ def on_window_closed():
     if webview_window:
         try:
             webview_window.hide()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WARN] 隐藏窗口失败: {e}")
 
 
 def _kill_port_occupant():
-    """检测并杀掉占用端口的旧进程"""
+    """检测并杀掉占用端口的旧进程（保守策略：只杀同名 python 进程）"""
     import subprocess
     try:
         result = subprocess.run(
             ['netstat', '-ano'], capture_output=True, text=True, timeout=5
         )
+        own_pid = os.getpid()
         for line in result.stdout.splitlines():
             if f':{_SERVER_PORT}' in line and 'LISTENING' in line:
                 parts = line.split()
                 pid = parts[-1]
-                if pid.isdigit() and int(pid) != os.getpid():
-                    print(f"[INFO] 端口 {_SERVER_PORT} 被进程 {pid} 占用，正在终止...")
+                if not pid.isdigit() or int(pid) == own_pid:
+                    continue
+                # 查询占用进程的命令行，避免误杀用户其他应用（如 IDE/开发服务器）
+                try:
+                    wmic = subprocess.run(
+                        ['wmic', 'process', 'where', f'ProcessId={pid}', 'get', 'CommandLine'],
+                        capture_output=True, text=True, timeout=3
+                    )
+                    cmdline = (wmic.stdout or '').lower()
+                except Exception as ce:
+                    print(f"[WARN] 查询 PID {pid} 命令行失败，跳过: {ce}")
+                    continue
+                # 仅当命令行包含本项目特征（main.py / app.server / std-scanner）时才杀
+                if any(kw in cmdline for kw in ('main.py', 'app.server', 'std-scanner')):
+                    print(f"[INFO] 端口 {_SERVER_PORT} 被旧实例 (PID {pid}) 占用，正在终止...")
                     subprocess.run(['taskkill', '/PID', pid, '/F'], capture_output=True, timeout=5)
                     time.sleep(1)
                     return True
-    except Exception:
-        pass
+                else:
+                    print(f"[WARN] 端口 {_SERVER_PORT} 被非本应用进程 (PID {pid}) 占用，请手动关闭后重试")
+                    return False
+    except Exception as e:
+        print(f"[WARN] 端口检测失败: {e}")
+        return False
     return False
 
 
@@ -200,7 +219,9 @@ def main():
         'min_size': (800, 600),
         'background_color': '#f8fafc',
         'frameless': True,
-        'easy_drag': True,
+        # easy_drag=False：禁用整窗口拖动，改由 CSS .pywebview-drag-region 精细控制
+        # 仅 app-header 标题栏可拖动，主内容区可正常选择/复制文字
+        'easy_drag': False,
     }
 
     # 3. 立即创建窗口（显示本地 loading 页，不等 API）
@@ -212,13 +233,13 @@ def main():
     )
     webview_window.events.closed += on_window_closed
 
-    # 4. 后台线程：等 API 就绪 → 注入 pywebview
+    # 4. 后台线程：等 API 就绪 → 注入 pywebview 窗口
     def _setup_when_api_ready():
         wait_for_api()
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            api_module.setup_pywebview(webview_window, loop)
+            # 不再在此创建独立 event loop：lifespan 启动后会用 running loop 覆盖 state._main_loop，
+            # 这里创建的 loop 从不运行任何任务，纯属冗余。仅注入窗口对象。
+            api_module.setup_pywebview(webview_window, None)
             print("[INFO] pywebview 窗口已注入到 API 模块")
         except Exception as e:
             print(f"[WARN] 无法设置 pywebview 窗口到 API: {e}")
@@ -248,10 +269,22 @@ def main():
 
     _shutdown()
 
-    # 等待 API 线程完成（lifespan 清理通常 < 0.5 秒）
-    api_thread.join(timeout=2)
+    # 等待 API 线程完成（lifespan 清理通常 < 5 秒，与 timeout_graceful_shutdown 对齐）
+    api_thread.join(timeout=6)
     if api_thread.is_alive():
-        print("[WARN] API服务未在2秒内退出，强制终止")
+        print("[WARN] API服务未在6秒内退出，强制终止")
+
+    # 显式关闭 HTTP 连接池（atexit 注册的回调在 os._exit 下不会执行，必须手动调用）
+    try:
+        from config.settings import http_client, close_captcha_clients
+        close_captcha_clients()
+        if not http_client.is_closed:
+            http_client.close()
+    except Exception as e:
+        print(f"[WARN] 关闭 HTTP 客户端失败: {e}")
+
+    # pywebview + uvicorn + APScheduler 后台线程无法干净退出，必须用 os._exit
+    # 绕过 Python 正常关闭流程，避免卡死或 ASGI CancelledError 日志刷屏
     os._exit(0)
 
 

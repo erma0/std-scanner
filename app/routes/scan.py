@@ -4,7 +4,7 @@
 消除此前 _create_scan_task + batch_download 与 run_scan_pipeline + download_phase
 的双路径问题。
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from typing import Optional, List
 from pydantic import BaseModel, Field
 import time
@@ -94,7 +94,7 @@ def _create_scan_task(scan_type, task_id_prefix, config, resume_task_id=None):
                 std_items=standards,
                 progress=100, status="completed",
                 end_time=time.time(),
-                message=f"{type_label}处理完成({len(standards)}条)")
+                message=f"{type_label}下载完成({len(standards)}条)")
 
             task = task_manager.get(task_id)
             report = task['stats'].copy()
@@ -133,7 +133,7 @@ async def scan_gb_standards_api(max_results: int = 500, scan_only: bool = False,
 
 @router.post("/api/scan/hb")
 async def scan_hb_standards_api(
-    industries: Optional[List[str]] = None,
+    industries: Optional[List[str]] = Query(None, description="行业代码列表，如 AQ/XF"),
     max_results: int = 500,
     scan_only: bool = False,
     incr: bool = False,
@@ -158,7 +158,7 @@ async def scan_hb_standards_api(
 
 @router.post("/api/scan/db")
 async def scan_db_standards_api(
-    provinces: Optional[List[str]] = None,
+    provinces: Optional[List[str]] = Query(None, description="省份名称列表，如 江苏省/浙江省"),
     max_results: int = 500,
     scan_only: bool = False,
     incr: bool = False,

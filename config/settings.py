@@ -5,45 +5,63 @@
 import httpx
 import threading
 import atexit
+import time
 from pathlib import Path
 
 from config.paths import BASE_DIR
+
+# ==================== 通用 TTL 缓存工具 ====================
+class _TTLCache:
+    """简单的线程安全 TTL 缓存单值容器。
+
+    用于替代历史上 _output_dir_cache 与 _Delay 各自重复实现的两份缓存逻辑。
+    """
+    __slots__ = ('_v', '_ts', '_ttl', '_default_factory', '_lock')
+
+    def __init__(self, ttl: float, default_factory):
+        self._v = None
+        self._ts = -1.0
+        self._ttl = ttl
+        self._default_factory = default_factory
+        self._lock = threading.Lock()
+
+    def get(self):
+        """获取缓存值，过期或未初始化时重新调用 factory 刷新。"""
+        now = time.monotonic()
+        with self._lock:
+            if self._v is not None and (now - self._ts) < self._ttl:
+                return self._v
+        # factory 调用放在锁外，避免 load_config 的磁盘 I/O 阻塞其他线程
+        try:
+            val = self._default_factory()
+        except Exception:
+            val = None
+        with self._lock:
+            self._v = val
+            self._ts = time.monotonic()
+        return val
+
 
 # ==================== 输出路径 ====================
 OUTPUT_DIR = Path.home() / "Downloads" / "安全标准"
 REPORT_FILE = BASE_DIR / "safety_report.md"
 
-# 输出目录缓存（避免高频下载时重复读磁盘）
-_output_dir_cache = None
-_output_dir_cache_ts = 0.0
-_OUTPUT_DIR_CACHE_TTL = 5.0
+
+def _load_output_dir() -> Path:
+    """从 config.json 读取 output_dir，失败回退到 OUTPUT_DIR 常量"""
+    from config.manager import load_config
+    cfg_dir = load_config().get('download', {}).get('output_dir', '')
+    return Path(cfg_dir) if cfg_dir else OUTPUT_DIR
+
+
+_output_dir_cache = _TTLCache(ttl=5.0, default_factory=_load_output_dir)
 
 
 def get_output_dir() -> Path:
-    """获取当前配置的输出目录（带短时缓存）。
-    
-    优先从 config.json 读取用户配置的 output_dir，
-    如果未配置或读取失败则回退到 OUTPUT_DIR 常量（~/Downloads/安全标准）。
-    """
-    global _output_dir_cache, _output_dir_cache_ts
-    import time as _time
-    now = _time.monotonic()
-    if _output_dir_cache is not None and (now - _output_dir_cache_ts) < _OUTPUT_DIR_CACHE_TTL:
-        return _output_dir_cache
+    """获取当前配置的输出目录（带 5s TTL 缓存）。"""
+    result = _output_dir_cache.get()
+    return result if result is not None else OUTPUT_DIR
 
-    try:
-        from config.manager import load_config
-        cfg_dir = load_config().get('download', {}).get('output_dir', '')
-        if cfg_dir:
-            result = Path(cfg_dir)
-        else:
-            result = OUTPUT_DIR
-    except Exception:
-        result = OUTPUT_DIR
-
-    _output_dir_cache = result
-    _output_dir_cache_ts = now
-    return result
 
 # ==================== 服务端配置 ====================
 SERVER_HOST = "127.0.0.1"
@@ -72,6 +90,7 @@ DB_API_URL = "https://dbba.sacinfo.org.cn/stdQueryList"
 # ==================== 分页/间隔 ====================
 PAGE_SIZE = 50
 
+
 def _read_delay_from_config() -> float:
     try:
         from config.manager import load_config
@@ -79,44 +98,24 @@ def _read_delay_from_config() -> float:
     except Exception:
         return 3.0
 
-class _Delay:
-    """动态读取用户配置的请求延迟，5秒缓存避免高频读磁盘"""
-    __slots__ = ('_v', '_ts')
 
-    def __init__(self):
-        self._v = 3.0
-        self._ts = 0.0
+# 动态延迟缓存（5s TTL，避免高频下载时重复读 config.json）
+_delay_cache = _TTLCache(ttl=5.0, default_factory=_read_delay_from_config)
 
-    def __float__(self):
-        import time as _t
-        now = _t.monotonic()
-        if now - self._ts < 5.0:
-            return self._v
-        self._v = _read_delay_from_config()
-        self._ts = now
-        return self._v
 
-    def __int__(self): return int(float(self))
-    def __index__(self): return int(float(self))
-    def __neg__(self): return -float(self)
-    def __bool__(self): return True
-    def __add__(self, o): return float(self) + float(o)
-    def __radd__(self, o): return float(o) + float(self)
-    def __sub__(self, o): return float(self) - float(o)
-    def __rsub__(self, o): return float(o) - float(self)
-    def __mul__(self, o): return float(self) * float(o)
-    def __rmul__(self, o): return float(o) * float(self)
-    def __truediv__(self, o): return float(self) / float(o)
-    def __rtruediv__(self, o): return float(o) / float(self)
-    def __lt__(self, o): return float(self) < float(o)
-    def __le__(self, o): return float(self) <= float(o)
-    def __eq__(self, o): return float(self) == float(o)
-    def __gt__(self, o): return float(self) > float(o)
-    def __ge__(self, o): return float(self) >= float(o)
-    def __str__(self): return str(float(self))
-    def __repr__(self): return str(float(self))
+def get_delay() -> float:
+    """获取当前配置的请求延迟（带 5s TTL 缓存）。
 
-DELAY = _Delay()
+    替代历史 _Delay 类（17 个魔术方法，过度工程化）。
+    所有 time.sleep(DELAY) / asyncio.sleep(DELAY) 改为 time.sleep(get_delay())。
+    """
+    val = _delay_cache.get()
+    return val if val is not None else 3.0
+
+
+# 兼容旧导入：DELAY 现在是 float 单例，启动时初始化一次。
+# 调用方应迁移到 get_delay() 以获得热更新能力。
+DELAY = _read_delay_from_config()
 
 # ==================== 浏览器 ====================
 BROWSER_CHANNELS = ['chrome', 'msedge']
@@ -149,7 +148,8 @@ try:
         limits=_HTTP_LIMITS,
         http2=True,
     )
-except Exception:
+except Exception as e:
+    print(f"[WARN] httpx http2 初始化失败，降级到 http1.1: {e}")
     try:
         _transport = httpx.HTTPTransport(retries=3)
         http_client = httpx.Client(
@@ -159,7 +159,8 @@ except Exception:
             follow_redirects=True,
             limits=_HTTP_LIMITS,
         )
-    except Exception:
+    except Exception as e2:
+        print(f"[WARN] httpx HTTPTransport 初始化失败，使用默认 transport: {e2}")
         http_client = httpx.Client(
             headers=_HTTP_HEADERS,
             timeout=_HTTP_TIMEOUT,
@@ -173,30 +174,58 @@ _captcha_lock = threading.Lock()
 
 
 def get_captcha_client(site_type: str = 'gb') -> httpx.Client:
-    """获取指定类型的验证码下载客户端（持久化 + 线程安全）
-    
+    """获取指定类型的共享验证码下载客户端（持久化 + 线程安全）
+
     Args:
         site_type: 'gb'（国标）| 'hb'（行标）| 'db'（地标）
+
+    Note:
+        GB 下载入口为 openstd.samr.gov.cn/bzgk/std/showGb?type=download（建立 session 的页面）。
+        HB/DB 域名下不存在 /showGb 路径，使用 stdList 作为默认 Referer；
+        下载请求时调用方应通过 headers 覆盖为详情页 Referer。
+
+    警告：共享 client 的 cookie 是全局唯一的，并发下载时多个任务会互相
+    覆盖 session（尤其 GB 验证码流程）。并发场景应使用 create_captcha_client()
+    创建独立 client。
     """
     with _captcha_lock:
         if site_type not in _captcha_clients:
-            base_url = CAPTCHA_BASE if site_type == 'gb' else \
-                       f'https://{site_type}ba.sacinfo.org.cn'
-            client = httpx.Client(
-                headers={
-                    **_HTTP_HEADERS,
-                    'Referer': f'{base_url}/showGb?type=download',
-                },
-                timeout=_HTTP_TIMEOUT,
-                follow_redirects=True,
-                limits=httpx.Limits(
-                    max_keepalive_connections=5,
-                    max_connections=10,
-                ),
-                cookies=None,  # 独立的 Cookie
-            )
-            _captcha_clients[site_type] = client
+            _captcha_clients[site_type] = create_captcha_client(site_type)
         return _captcha_clients[site_type]
+
+
+def create_captcha_client(site_type: str = 'gb') -> httpx.Client:
+    """创建一个独立的验证码下载客户端（每次调用返回新实例）
+
+    用于并发下载场景：每个并发任务持有一个独立 client，避免 cookie 串扰。
+    调用方负责在任务结束后调用 client.close() 释放连接。
+
+    Args:
+        site_type: 'gb'（国标）| 'hb'（行标）| 'db'（地标）
+    """
+    if site_type == 'gb':
+        referer = f'{GB_DOWNLOAD_BASE}/showGb?type=download'
+    else:
+        # HB/DB：使用 stdList 作为默认 Referer（详情页 Referer 由调用方按请求覆盖）
+        referer = f'https://{site_type}ba.sacinfo.org.cn/stdList'
+    return httpx.Client(
+        headers={
+            **_HTTP_HEADERS,
+            'Referer': referer,
+        },
+        timeout=_HTTP_TIMEOUT,
+        follow_redirects=True,
+        limits=httpx.Limits(
+            max_keepalive_connections=5,
+            max_connections=10,
+        ),
+        cookies=None,  # 独立的 Cookie
+        # trust_env=False：不读 HTTP_PROXY/NO_PROXY 等环境变量。
+        # 必须关闭，否则 NO_PROXY 中的 IPv6 地址（如 ::1）会触发
+        # httpx URL 解析 bug (Invalid port: ':1')，导致 Client 创建失败。
+        # 直连目标网站，无需系统代理。
+        trust_env=False,
+    )
 
 
 def close_captcha_clients():

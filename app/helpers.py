@@ -74,13 +74,18 @@ _DASH_NORMALIZE_TABLE = str.maketrans({
 
 
 def normalize_code(code):
-    """归一化标准编号中的 dash 字符，将 — 等统一为英文半角 -
-    
+    """归一化标准编号：清理 sacinfo 标签 + 统一 dash 字符
+
+    API 返回的 C_STD_CODE 可能包含 <sacinfo>...</sacinfo> HTML 标签
+    （如 'GB/T <sacinfo>47334-2026</sacinfo>'），需清理。
+    同时将 — 等统一为英文半角 -。
+
     在所有 code 提取点（GB/HB/DB/Search/ChangeTracker）调用，
     确保存入数据库/JSON 的 code 字段格式统一。
     """
     if not code:
         return code
+    code = code.replace('<sacinfo>', '').replace('</sacinfo>', '')
     return code.translate(_DASH_NORMALIZE_TABLE)
 
 
@@ -88,23 +93,35 @@ def safe_filename(filename):
     """清理文件名，避免特殊字符问题和路径遍历"""
     if not filename:
         return 'unnamed'
-    
+
     # 统一所有 dash 变体为英文半角连字符
     filename = filename.translate(_DASH_NORMALIZE_TABLE)
-    
+
+    # 移除控制字符（换行符、回车、制表符等）— 搜索结果可能包含 \n
+    # Windows 文件名不允许这些字符，且会导致 os.replace 失败
+    filename = ''.join(c for c in filename if c >= ' ' or c in '\u3000')
+
     invalid_chars = '<>:"/\\|?*'
+    # 移除 /（不替换为 _，保持 GBT 格式），其余非法字符替换为 _
     for char in invalid_chars:
-        filename = filename.replace(char, '_')
-    
+        if char == '/':
+            filename = filename.replace(char, '')
+        else:
+            filename = filename.replace(char, '_')
+
     # 移除路径遍历
     while '..' in filename:
         filename = filename.replace('..', '__')
-    
+
+    # 压缩连续空格为单个空格（避免标准名称中多空格导致文件名混乱）
+    while '  ' in filename:
+        filename = filename.replace('  ', ' ')
+
     # 限制长度
     if len(filename) > 150:
         name, ext = Path(filename).stem, Path(filename).suffix
         filename = f'{name[:140]}{ext}'
-    
+
     return filename
 
 

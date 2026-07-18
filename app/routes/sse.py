@@ -64,6 +64,18 @@ def sse_close_all():
         _sse_queues.clear()
 
 
+def sse_reset():
+    """重置 SSE 状态，用于服务启动时清理上次运行残留。
+
+    sse_close_all() 设置的 _sse_cancelling=True 在进程未重启的场景下
+    （如测试、热重载）会导致新连接立即返回，必须在此重置。
+    """
+    global _sse_cancelling
+    with _sse_lock:
+        _sse_cancelling = False
+        _sse_queues.clear()
+
+
 @router.get("/tasks/stream")
 async def task_stream():
     """SSE 端点：实时推送任务状态变更。
@@ -79,7 +91,9 @@ async def task_stream():
 
     async def event_generator():
         try:
-            if _sse_cancelling:
+            with _sse_lock:
+                cancelling = _sse_cancelling
+            if cancelling:
                 return
             from .state import task_manager
             tasks = task_manager.get_all()

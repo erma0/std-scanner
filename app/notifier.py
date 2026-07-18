@@ -7,6 +7,11 @@
   - 企业微信 (wecom)
   - 钉钉 (dingtalk)
 """
+import time as _time
+import hmac
+import hashlib
+import base64
+from urllib.parse import quote_plus
 
 from app.helpers import get_logger
 from config.manager import load_config
@@ -87,11 +92,6 @@ class DingTalkNotifier:
         """生成带签名的钉钉 Webhook URL"""
         if not self.secret:
             return self.webhook
-        import time as _time
-        import hmac
-        import hashlib
-        import base64
-        from urllib.parse import quote_plus
         timestamp = str(round(_time.time() * 1000))
         secret_enc = self.secret.encode('utf-8')
         string_to_sign = f'{timestamp}\n{self.secret}'

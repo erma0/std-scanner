@@ -22,8 +22,14 @@ SCAN_CHECKPOINT_FILE = CONFIG_DIR / "scan_checkpoint.json"
 
 # ==================== 项目本地路径 ====================
 BASE_DIR = Path(__file__).parent.parent  # 项目根目录（config/ → 根）
-DATA_FILE = BASE_DIR / "safety_full.json"
-CKPT_FILE = BASE_DIR / "scan_ckpt.json"  # 旧版，保留兼容
+# 运行时数据文件统一存到用户数据目录，避免污染项目根目录
+DATA_FILE = CONFIG_DIR / "safety_full.json"   # 扫描结果 JSON 快照（CLI 模式用）
+CKPT_FILE = CONFIG_DIR / "scan_ckpt.json"     # 旧版，保留兼容
+STATIC_DIR = BASE_DIR / "static"        # 静态资源目录（图标/CSS/字体等）
+UI_FILE = BASE_DIR / "ui.html"          # WebUI 单文件 SPA
+
+# ==================== 运行时日志路径 ====================
+LOG_DIR = CONFIG_DIR / "logs"           # 日志文件目录
 
 # ==================== 旧路径（用于迁移） ====================
 _OLD_CONFIG_DIR = BASE_DIR / ".std_scanner"

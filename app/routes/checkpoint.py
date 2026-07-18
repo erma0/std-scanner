@@ -21,7 +21,8 @@ def _check_scan_running():
     try:
         running = task_manager.get_all(status_filter='running')
         return any(t.get('std_type') in ('gb', 'hb', 'db') for t in running)
-    except Exception:
+    except Exception as e:
+        _log.debug(f"检查扫描任务状态失败，按无运行处理: {e}")
         return False
 
 

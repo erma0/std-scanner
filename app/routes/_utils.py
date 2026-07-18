@@ -104,7 +104,7 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
                     stats=stats, std_items=standards,
                     progress=100, status="completed",
                     end_time=time.time(),
-                    message=f"{'国家标准' if st == 'gb' else '行业标准' if st == 'hb' else '地方标准'}处理完成({len(standards)}条)")
+                    message=f"{'国家标准' if st == 'gb' else '行业标准' if st == 'hb' else '地方标准'}下载完成({len(standards)}条)")
 
                 # 发送通知
                 task = task_manager.get(tid)

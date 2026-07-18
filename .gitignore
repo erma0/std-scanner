@@ -7,11 +7,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-# 扫描运行时代理
-scan_ckpt.json
-safety_full.json
-hb_standards.json
-db_standards.json
+# 扫描运行时代理（已迁移到 ~/.std_scanner/，此处保留兼容旧版）
 safety_report.md
 
 # 迁移备份

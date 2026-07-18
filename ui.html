@@ -230,7 +230,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                         <img src="/static/icon_64.png" alt="标准速递" class="w-8 h-8 rounded-lg shadow">
                         <h1 class="text-lg font-bold text-gray-800">标准速递</h1>
                     </div>
-                    <div class="flex items-center">
+                    <div class="flex items-center pywebview-drag-ignore">
                         <button id="win-minimize" class="w-10 h-10 flex items-center justify-center hover:bg-gray-200 rounded transition-colors" title="最小化">
                             <svg width="10" height="10" viewBox="0 0 10 10"><rect x="0" y="4" width="10" height="2" rx="1" fill="#6b7280"/></svg>
                         </button>
@@ -492,7 +492,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                             <span class="text-sm text-gray-600">状态</span>
                                             <select id="hb-state" class="px-2 py-1.5 border border-gray-300 rounded text-sm">
                                                 <option value="现行" selected>现行</option>
-                                                <option value="有更新版">有更新版</option>
+                                                <option value="即将实施">即将实施</option>
                                                 <option value="废止">废止</option>
                                                 <option value="">全部</option>
                                             </select>
@@ -524,7 +524,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                             <span class="text-sm text-gray-600">状态</span>
                                             <select id="db-state" class="px-2 py-1.5 border border-gray-300 rounded text-sm">
                                                 <option value="现行" selected>现行</option>
-                                                <option value="有更新版">有更新版</option>
+                                                <option value="即将实施">即将实施</option>
                                                 <option value="废止">废止</option>
                                                 <option value="">全部</option>
                                             </select>
@@ -556,7 +556,6 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                             <select id="all-state" class="px-2 py-1.5 border border-gray-300 rounded text-sm">
                                                 <option value="现行" selected>现行</option>
                                                 <option value="即将实施">即将实施</option>
-                                                <option value="有更新版">有更新版</option>
                                                 <option value="废止">废止</option>
                                                 <option value="">全部</option>
                                             </select>
@@ -564,7 +563,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                             <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="all-scan-only" class="w-4 h-4 text-blue-500 rounded mr-1.5">仅扫描</label>
                                             <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="all-incr" class="w-4 h-4 text-blue-500 rounded mr-1.5" checked>增量</label>
                                         </div>
-                                        <p class="text-xs text-gray-400 mt-1">"即将实施"仅对国标生效，"有更新版"仅对行标/地标生效</p>
+                                        <p class="text-xs text-gray-400 mt-1">状态筛选对所有标准类型统一生效（现行/即将实施/废止/全部）</p>
 
                                         <div class="space-y-3">
                                                                                         <div class="collapse-card flex items-start p-3 bg-blue-50 rounded-lg border border-blue-100">
@@ -2255,7 +2254,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
         function showSearchDownloadProgress(total) {
             const panel = document.getElementById('search-download-progress');
             panel.classList.remove('hidden');
-            document.getElementById('search-dl-message').textContent = `正在下载 ${total} 个标准...`;
+            document.getElementById('search-dl-message').textContent = `下载中 ${total} 个标准...`;
             document.getElementById('search-dl-percent').textContent = '0%';
             document.getElementById('search-dl-bar').style.width = '0%';
             document.getElementById('search-dl-success').textContent = '0';
@@ -2342,6 +2341,8 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                         showToast('扫描已启动', 'success');
                         navigateToPage('tasks');
                         setTimeout(() => toggleTaskExpand(result.task_id), 500);
+                    } else {
+                        showToast('启动失败: ' + (result.detail || result.message || '未知错误'), 'error');
                     }
                 } catch (e) {
                     showToast('失败: ' + (e.message || String(e)), 'error');
@@ -2419,17 +2420,15 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 try {
                     const incr = document.getElementById('hb-incr').checked;
                     const state = document.getElementById('hb-state').value;
-                    const resp = await fetch(`${API_BASE}/scan/hb`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            industries: selectedIndustries,
-                            max_results: parseInt(pages),
-                            scan_only: scanOnly,
-                            incr: incr,
-                            keyword_group: kwCurrentGroup,
-                            std_state: state
-                        })
+                    const params = new URLSearchParams();
+                    params.set('max_results', parseInt(pages));
+                    params.set('scan_only', scanOnly);
+                    params.set('incr', incr);
+                    params.set('keyword_group', kwCurrentGroup);
+                    params.set('std_state', state);
+                    selectedIndustries.forEach(ind => params.append('industries', ind));
+                    const resp = await fetch(`${API_BASE}/scan/hb?${params.toString()}`, {
+                        method: 'POST'
                     });
                     const result = await resp.json();
 
@@ -2437,6 +2436,8 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                         showToast('扫描已启动', 'success');
                         navigateToPage('tasks');
                         setTimeout(() => toggleTaskExpand(result.task_id), 500);
+                    } else {
+                        showToast('启动失败: ' + (result.detail || result.message || '未知错误'), 'error');
                     }
                 } catch (e) {
                     showToast('失败: ' + (e.message || String(e)), 'error');
@@ -2505,17 +2506,15 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 try {
                     const incr = document.getElementById('db-incr').checked;
                     const state = document.getElementById('db-state').value;
-                    const resp = await fetch(`${API_BASE}/scan/db`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            provinces: selectedProvinces,
-                            max_results: parseInt(pages),
-                            scan_only: scanOnly,
-                            incr: incr,
-                            keyword_group: kwCurrentGroup,
-                            std_state: state
-                        })
+                    const params = new URLSearchParams();
+                    params.set('max_results', parseInt(pages));
+                    params.set('scan_only', scanOnly);
+                    params.set('incr', incr);
+                    params.set('keyword_group', kwCurrentGroup);
+                    params.set('std_state', state);
+                    selectedProvinces.forEach(prov => params.append('provinces', prov));
+                    const resp = await fetch(`${API_BASE}/scan/db?${params.toString()}`, {
+                        method: 'POST'
                     });
                     const result = await resp.json();
 
@@ -2523,6 +2522,8 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                         showToast('扫描已启动', 'success');
                         navigateToPage('tasks');
                         setTimeout(() => toggleTaskExpand(result.task_id), 500);
+                    } else {
+                        showToast('启动失败: ' + (result.detail || result.message || '未知错误'), 'error');
                     }
                 } catch (e) {
                     showToast('失败: ' + (e.message || String(e)), 'error');
@@ -2705,13 +2706,63 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             return base + incr;
         }
 
+        // 统一计算任务时长（秒）。优先使用后端推送的 duration（已扣除 paused_duration）；
+        // 回退方案：本地用 start_time/end_time/paused_duration/paused_at 推算。
+        // 暂停状态下不计入新增时长，避免 duration 持续增长。
+        function _computeTaskDuration(task) {
+            if (!task || !task.start_time) return 0;
+            if (task.duration != null && task.duration >= 0) return task.duration;
+            const now = Date.now() / 1000;
+            let end_time = task.end_time;
+            if (end_time == null && task.status === 'running') end_time = now;
+            if (!end_time) return 0;
+            let paused = task.paused_duration || 0;
+            if (task.status === 'paused' && task.paused_at) {
+                paused += Math.max(0, now - task.paused_at);
+            }
+            return Math.max(0, end_time - task.start_time - paused);
+        }
+
+        function _formatDuration(d) {
+            if (!d || d <= 0) return '';
+            return d < 60 ? Math.round(d) + '秒' : Math.round(d / 60) + '分' + Math.round(d % 60) + '秒';
+        }
+
+        // 单进度条显示策略：
+        // - search 类型：直接用 task.progress
+        // - gb/hb/db 类型：
+        //   - 下载阶段（dl_progress != null 且 scan_progress >= 100）→ 显示 dl_progress（绿色）
+        //   - 扫描阶段（scan_progress != null 且 scan_progress < 100）→ 显示 scan_progress（蓝色）
+        //   - 兼容旧任务（无 scan/dl_progress）：回退用 task.progress
+        function _getDisplayProgress(task) {
+            if (!task) return 0;
+            if (task.std_type === 'search') return task.progress || 0;
+            const sp = task.scan_progress;
+            const dp = task.dl_progress;
+            // 下载阶段
+            if (dp != null && (sp == null || sp >= 100)) return dp;
+            // 扫描阶段
+            if (sp != null) return sp;
+            // 回退：旧任务无分段进度
+            return task.progress || 0;
+        }
+
+        function _getDisplayProgressColor(task) {
+            // 下载阶段用绿色，扫描阶段用蓝色
+            const sp = task && task.scan_progress;
+            const dp = task && task.dl_progress;
+            if (dp != null && (sp == null || sp >= 100)) {
+                return 'linear-gradient(90deg, #10b981, #22c55e)';
+            }
+            return 'linear-gradient(90deg, #3b82f6, #06b6d4)';
+        }
+
         function renderTaskCard(task) {
             const stats = task.stats || {};
             const startTime = task.start_time ? new Date(task.start_time * 1000).toLocaleString() : '';
-            const duration = task.duration != null ? task.duration
-                : (task.start_time
-                    ? (task.end_time ? task.end_time - task.start_time : Date.now() / 1000 - task.start_time)
-                    : 0);
+            // 优先使用后端推送的 duration（已扣除 paused_duration，且暂停状态不会持续增长）
+            // 回退方案：用 start_time + end_time + paused_duration 本地计算
+            const duration = _computeTaskDuration(task);
             const durationText = duration > 0
                 ? (duration < 60 ? Math.round(duration) + '秒' : Math.round(duration / 60) + '分' + Math.round(duration % 60) + '秒')
                 : '';
@@ -2739,52 +2790,57 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                 ${typeName}
                             </h3>
                             <div class="flex items-center space-x-2">
+                                ${stats.scanned ? `<span class="task-data-count px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600" title="匹配标准数" data-count="${stats.scanned}"><i class="fa fa-database mr-0.5"></i>${stats.scanned}</span>` : `<span class="task-data-count px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600" title="匹配标准数" data-count="0" style="display:none"></span>`}
                                 <span class="task-status-badge px-2.5 py-0.5 rounded-full text-xs font-medium ${statusClass}" data-status="${task.status}">${statusLabels[task.status] || task.status}</span>
                                 <i class="fa fa-chevron-down text-gray-400 text-xs task-chevron transition-transform" id="chevron-${task.task_id}"></i>
                             </div>
                         </div>
                         <div class="mb-3">
-                            <div class="flex justify-between text-xs text-gray-500 mb-1.5">
-                                <span class="task-message" data-message="${esc(task.message || '')}">${task.message || ''}</span>
-                                <span class="task-progress-text font-medium" data-progress="${task.progress}">${task.progress}%</span>
+                            <div class="flex justify-between text-xs text-gray-500 mb-1.5 gap-2">
+                                <span class="task-message truncate" data-message="${esc(task.message || '')}">${task.message || ''}</span>
+                                <span class="flex items-center gap-2 shrink-0">
+                                    <span class="task-current-item text-gray-400 truncate" data-current="${esc(task.currentItem || '')}" style="max-width: 12rem;${task.currentItem ? '' : 'display:none'}">${task.currentItem || ''}</span>
+                                    <span class="task-progress-text font-medium" data-progress="${task.progress}" data-scan="${task.scan_progress ?? ''}" data-dl="${task.dl_progress ?? ''}">${_getDisplayProgress(task)}%</span>
+                                </span>
                             </div>
                             <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
-                                <div class="task-progress-bar h-full rounded-full transition-all duration-500" data-progress="${task.progress}" style="width: ${task.progress}%; background: linear-gradient(90deg, #3b82f6, #06b6d4)"></div>
+                                <div class="task-progress-bar h-full rounded-full transition-all duration-500" data-progress="${_getDisplayProgress(task)}" style="width: ${_getDisplayProgress(task)}%; background: ${_getDisplayProgressColor(task)}"></div>
                             </div>
-                            <div class="task-current-item text-xs text-gray-400 mt-1 truncate" data-current="${esc(task.currentItem || '')}" style="${task.currentItem ? '' : 'display:none'}">${task.currentItem || ''}</div>
                         </div>
 
                         ${(stats.scanned || stats.success || stats.failed || stats.skipped) ? `
                         <div class="mb-3">
-                            <div class="flex items-center gap-3 text-[13px]">
-                                <span><b class="task-stat-scanned text-blue-600" data-stat="scanned">${stats.scanned || 0}</b> <span class="text-gray-500 text-xs">匹配</span></span>
-                                <span class="text-gray-300">·</span>
-                                <span><b class="task-stat-success text-green-600" data-stat="success">${stats.success || 0}</b> <span class="text-gray-500 text-xs">成功</span></span>
-                                <span class="text-gray-300">·</span>
-                                <span><b class="task-stat-failed text-red-600" data-stat="failed">${stats.failed || 0}</b> <span class="text-gray-500 text-xs">失败</span></span>
-                                <span class="text-gray-300">·</span>
-                                <span><b class="task-stat-skipped text-gray-600" data-stat="skipped">${stats.skipped || 0}</b> <span class="text-gray-500 text-xs">跳过</span></span>
+                            <div class="flex items-center justify-between text-[13px]">
+                                <div class="flex items-center gap-3">
+                                    <span><b class="task-stat-scanned text-blue-600" data-stat="scanned">${stats.scanned || 0}</b> <span class="text-gray-500 text-xs">匹配</span></span>
+                                    <span class="text-gray-300">·</span>
+                                    <span><b class="task-stat-success text-green-600" data-stat="success">${stats.success || 0}</b> <span class="text-gray-500 text-xs">成功</span></span>
+                                    <span class="text-gray-300">·</span>
+                                    <span><b class="task-stat-failed text-red-600" data-stat="failed">${stats.failed || 0}</b> <span class="text-gray-500 text-xs">失败</span></span>
+                                    <span class="text-gray-300">·</span>
+                                    <span><b class="task-stat-skipped text-gray-600" data-stat="skipped">${stats.skipped || 0}</b> <span class="text-gray-500 text-xs">跳过</span></span>
+                                </div>
+                                ${(stats.direct_dl || stats.previewed || stats.skipped_existing || stats.skipped_nodl) ? `
+                                <div class="flex items-center gap-2 text-[11px] text-gray-400">
+                                    <span>直下 <b class="task-stat-dd text-gray-500" data-stat="direct_dl">${stats.direct_dl || 0}</b></span>
+                                    <span class="text-gray-300">·</span>
+                                    <span>预览 <b class="task-stat-pr text-gray-500" data-stat="previewed">${stats.previewed || 0}</b></span>
+                                    <span class="text-gray-300">·</span>
+                                    <span>重复 <b class="task-stat-se text-gray-500" data-stat="skipped_existing">${stats.skipped_existing || 0}</b></span>
+                                    <span class="text-gray-300">·</span>
+                                    <span>不可下 <b class="task-stat-sn text-gray-500" data-stat="skipped_nodl">${stats.skipped_nodl || 0}</b></span>
+                                </div>
+                                ` : ''}
                             </div>
-                            ${(stats.direct_dl || stats.previewed || stats.skipped_existing || stats.skipped_nodl) ? `
-                            <div class="flex items-center gap-2 text-[11px] text-gray-400 mt-1">
-                                <span>直下 <b class="task-stat-dd text-gray-500" data-stat="direct_dl">${stats.direct_dl || 0}</b></span>
-                                <span class="text-gray-300">·</span>
-                                <span>预览 <b class="task-stat-pr text-gray-500" data-stat="previewed">${stats.previewed || 0}</b></span>
-                                <span class="text-gray-300">·</span>
-                                <span>重复 <b class="task-stat-se text-gray-500" data-stat="skipped_existing">${stats.skipped_existing || 0}</b></span>
-                                <span class="text-gray-300">·</span>
-                                <span>不可下 <b class="task-stat-sn text-gray-500" data-stat="skipped_nodl">${stats.skipped_nodl || 0}</b></span>
-                            </div>
-                            ` : ''}
                         </div>
                         ` : ''}
 
                         ${task.changes && !task.changes.new_scan && (task.changes.added?.length || task.changes.changed?.length || task.changes.removed?.length) ? `
-                        <div class="task-changes-row flex items-center gap-2 text-[11px] text-gray-400 mb-3">
-                            <i class="fa fa-exchange text-gray-300"></i>
-                            <span class="task-changes-added text-green-600" data-changes="added" style="${task.changes.added?.length ? '' : 'display:none'}">+${task.changes.added?.length || 0}新增</span>
-                            <span class="task-changes-changed text-orange-500" data-changes="changed" style="${task.changes.changed?.length ? '' : 'display:none'}">${task.changes.changed?.length || 0}变更</span>
-                            <span class="task-changes-removed text-red-500" data-changes="removed" style="${task.changes.removed?.length ? '' : 'display:none'}">-${task.changes.removed?.length || 0}删除</span>
+                        <div class="task-changes-row flex items-center gap-3 text-[11px] text-gray-400 mb-3 pt-2 border-t border-gray-100">
+                            <span class="text-gray-400"><i class="fa fa-exchange mr-1"></i>变更追踪</span>
+                            <span class="task-changes-added text-green-600" data-changes="added" style="${task.changes.added?.length ? '' : 'display:none'}"><i class="fa fa-plus-circle mr-0.5"></i>${task.changes.added?.length || 0} 新增</span>
+                            <span class="task-changes-changed text-orange-500" data-changes="changed" style="${task.changes.changed?.length ? '' : 'display:none'}"><i class="fa fa-exchange mr-0.5"></i>${task.changes.changed?.length || 0} 变更</span>
+                            <span class="task-changes-removed text-red-500" data-changes="removed" style="${task.changes.removed?.length ? '' : 'display:none'}"><i class="fa fa-minus-circle mr-0.5"></i>${task.changes.removed?.length || 0} 删除</span>
                         </div>
                         ` : ''}
 
@@ -2818,6 +2874,23 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             const stats = task.stats || {};
             const statusLabels = { 'running': '运行中', 'completed': '已完成', 'failed': '失败', 'pending': '等待中', 'paused': '已暂停', 'interrupted': '已中断' };
 
+            // 如果卡片初始化时 stats 全为 0（stats 行未渲染），现在 stats 有数据了，
+            // 需要重建卡片 HTML 以显示 stats 行（否则后续 querySelector 找不到元素）
+            const hasStatsRow = !!card.querySelector('.task-stat-scanned');
+            const hasStatsNow = !!(stats.scanned || stats.success || stats.failed || stats.skipped);
+            if (hasStatsNow && !hasStatsRow) {
+                const wasExpanded = !card.querySelector('.task-detail-content')?.classList.contains('hidden');
+                card.outerHTML = renderTaskCard(task);
+                const newCard = document.querySelector(`.task-card[data-task-id="${task.task_id}"]`);
+                if (newCard && wasExpanded) {
+                    // 保留展开状态，重新拉取详情
+                    const detail = newCard.querySelector('.task-detail-content');
+                    if (detail) detail.classList.remove('hidden');
+                    if (typeof loadTaskDetail === 'function') loadTaskDetail(task.task_id);
+                }
+                return;
+            }
+
             const badge = card.querySelector('.task-status-badge');
             if (badge && badge.dataset.status !== task.status) {
                 badge.dataset.status = task.status;
@@ -2832,17 +2905,33 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 updateTaskActions(card, task);
             }
 
+            // 单进度条：扫描阶段显示 scan_progress（蓝），下载阶段显示 dl_progress（绿）
+            const dp = _getDisplayProgress(task);
+            const dColor = _getDisplayProgressColor(task);
             const progText = card.querySelector('.task-progress-text');
-            const p = task.progress != null ? task.progress : 0;
-            if (progText && progText.dataset.progress !== String(p)) {
-                progText.dataset.progress = p;
-                progText.textContent = p + '%';
+            if (progText) {
+                const newTxt = dp + '%';
+                if (progText.textContent !== newTxt) {
+                    progText.textContent = newTxt;
+                }
+                // data-scan/data-dl 用于检测阶段切换（颜色变化）
+                const newScan = task.scan_progress ?? '';
+                const newDl = task.dl_progress ?? '';
+                if (progText.dataset.scan !== String(newScan) || progText.dataset.dl !== String(newDl)) {
+                    progText.dataset.scan = newScan;
+                    progText.dataset.dl = newDl;
+                }
             }
-
             const progBar = card.querySelector('.task-progress-bar');
-            if (progBar && progBar.dataset.progress !== String(p)) {
-                progBar.dataset.progress = p;
-                progBar.style.width = p + '%';
+            if (progBar) {
+                if (progBar.dataset.progress !== String(dp)) {
+                    progBar.dataset.progress = dp;
+                    progBar.style.width = dp + '%';
+                }
+                // 颜色随阶段切换（蓝→绿）
+                if (progBar.style.background !== dColor) {
+                    progBar.style.background = dColor;
+                }
             }
 
             const msgEl = card.querySelector('.task-message');
@@ -2858,7 +2947,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 if (curEl.dataset.current !== cur) {
                     curEl.dataset.current = cur;
                     curEl.textContent = cur;
-                    curEl.style.display = cur ? '' : 'none';
+                    curEl.style.display = cur ? 'inline-block' : 'none';
                 }
             }
 
@@ -2873,13 +2962,23 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 }
             });
 
+            // 更新标题栏数据条数小标签（含图标，需特殊处理）
+            const countEl = card.querySelector('.task-data-count');
+            if (countEl) {
+                const val = stats.scanned || 0;
+                if (countEl.dataset.count !== String(val)) {
+                    countEl.dataset.count = val;
+                    countEl.innerHTML = `<i class="fa fa-database mr-0.5"></i>${val}`;
+                    countEl.style.display = val ? '' : 'none';
+                }
+            }
+
             const durEl = card.querySelector('.task-duration');
             if (durEl) {
-                const d = task.duration != null ? task.duration
-                    : (task.start_time ? (task.end_time ? task.end_time - task.start_time : Date.now()/1000 - task.start_time) : 0);
+                const d = _computeTaskDuration(task);
                 if (durEl.dataset.duration !== String(Math.round(d))) {
                     durEl.dataset.duration = Math.round(d);
-                    const dt = d > 0 ? (d < 60 ? Math.round(d) + '秒' : Math.round(d/60) + '分' + Math.round(d%60) + '秒') : '';
+                    const dt = _formatDuration(d);
                     durEl.innerHTML = dt ? '<i class="fa fa-hourglass-half mr-1"></i>' + dt : '';
                 }
             }
@@ -2890,7 +2989,10 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     if (el) {
                         const count = (task.changes[key] || []).length;
                         el.style.display = count > 0 ? '' : 'none';
-                        if (count > 0) el.textContent = (key==='added'?'+':key==='removed'?'-':'') + count + ({added:'新增',changed:'变更',removed:'删除'}[key]);
+                        if (count > 0) {
+                            const icon = key === 'added' ? 'fa-plus-circle' : key === 'removed' ? 'fa-minus-circle' : 'fa-exchange';
+                            el.innerHTML = `<i class="fa ${icon} mr-0.5"></i>${count} ${key==='added'?'新增':key==='changed'?'变更':'删除'}`;
+                        }
                     }
                 });
             }
@@ -2929,6 +3031,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
         let _lastTasksHTML = '';
         let _sseErrorCount = 0;
         const _SSE_MAX_ERRORS = 3;
+        // 任务缓存：用于 duration 定时器实时刷新（无需后端推送）
+        let _taskCache = {};  // { task_id: task }
+        let _durationTickInterval = null;
 
         function initTaskSSE() {
             try {
@@ -2986,6 +3091,10 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             const filterSelect = document.getElementById('task-filter-status');
             const searchText = searchInput ? searchInput.value.toLowerCase() : '';
             const filterStatus = filterSelect ? filterSelect.value : '';
+
+            // 更新全局任务缓存（用于 duration 定时器）
+            _taskCache = {};
+            tasks.forEach(t => { if (t && t.task_id) _taskCache[t.task_id] = t; });
 
             tasks = tasks.filter(task => {
                 if (filterStatus && task.status !== filterStatus) return false;
@@ -3072,6 +3181,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
         }
 
         function updateSingleTaskInUI(task) {
+            if (task && task.task_id) {
+                _taskCache[task.task_id] = task;
+            }
             const card = document.querySelector(`.task-card[data-task-id="${task.task_id}"]`);
             if (card) {
                 updateTaskCardDOM(task);
@@ -3126,6 +3238,32 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             if (filterSelect) {
                 filterSelect.addEventListener('change', () => loadTasks());
             }
+
+            // 每秒刷新运行中/暂停任务的 duration 显示（无需后端推送，本地实时计算）
+            if (_durationTickInterval) clearInterval(_durationTickInterval);
+            _durationTickInterval = setInterval(() => {
+                const tasksPage = document.getElementById('page-tasks');
+                if (!tasksPage || tasksPage.classList.contains('hidden')) return;
+                Object.values(_taskCache).forEach(task => {
+                    if (!task || !task.start_time) return;
+                    // 只对运行中/暂停任务实时刷新；已完成/失败任务的 duration 由 SSE 推送后端最终值
+                    if (task.status !== 'running' && task.status !== 'paused') return;
+                    // 已有 end_time 的任务不再增长
+                    if (task.end_time) return;
+                    const card = document.querySelector(`.task-card[data-task-id="${task.task_id}"]`);
+                    if (!card) return;
+                    const durEl = card.querySelector('.task-duration');
+                    if (!durEl) return;
+                    // 临时构造副本（避免污染缓存），强制本地计算
+                    const d = _computeTaskDuration({ ...task, duration: null });
+                    const dt = _formatDuration(d);
+                    const newHtml = dt ? '<i class="fa fa-hourglass-half mr-1"></i>' + dt : '';
+                    if (durEl.innerHTML !== newHtml) {
+                        durEl.innerHTML = newHtml;
+                        durEl.dataset.duration = Math.round(d);
+                    }
+                });
+            }, 1000);
         }
 
         async function deleteTask(taskId) {
@@ -3264,6 +3402,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 'preview_disabled': { text: '预览未启用', cls: 'text-gray-400', icon: 'fa-ban' },
                 'no_fulltext':      { text: '无全文', cls: 'text-gray-400', icon: 'fa-file-o' },
                 'no_hcno':          { text: '未发布', cls: 'text-yellow-500', icon: 'fa-clock-o' },
+                'downloading':      { text: '下载中', cls: 'text-blue-500 animate-pulse', icon: 'fa-spinner fa-spin' },
                 'failed':           { text: '网络错误', cls: 'text-red-600', icon: 'fa-times-circle' },
                 'failed_captcha':   { text: '验证码失败', cls: 'text-red-600', icon: 'fa-times-circle' },
                 'failed_preview':   { text: '预览拼接失败', cls: 'text-red-600', icon: 'fa-times-circle' },
@@ -3327,8 +3466,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                         <td class="py-1 px-1.5 text-[10px] text-center whitespace-nowrap dl-status-cell">${dlBadge}${retryBtn}</td>
                     </tr>`;
                 }).join('');
+                // 分页控件（表格上下各一份）
                 const paginationHtml = totalPages > 1 ? `
-                    <div class="flex items-center justify-between mt-2 text-[10px] text-gray-400 detail-pagination">
+                    <div class="flex items-center justify-between text-[10px] text-gray-400 detail-pagination">
                         <span>第 ${currentPage}/${totalPages} 页，共 ${items.length} 条</span>
                         <div class="flex gap-1">
                             <button class="px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-100 disabled:opacity-30" onclick="event.stopPropagation();_detailGoPage('${tid}',1)" ${currentPage===1?'disabled':''}>«</button>
@@ -3339,7 +3479,8 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     </div>
                 ` : '';
                 tableHtml = `
-                    <div class="overflow-x-auto mt-2">
+                    ${paginationHtml}
+                    <div class="overflow-x-auto mt-1">
                         <table class="w-full text-left">
                             <thead>
                                 <tr class="border-b border-gray-200 text-[10px] text-gray-400">
@@ -3359,17 +3500,18 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 `;
             }
 
-            // 变更追踪（仅显示计数摘要）
+            // 变更追踪（仅显示计数摘要）— 去边框，用分割线分隔，紧凑间距
             const changes = task.changes;
             let changesHtml = '';
             if (changes && !changes.new_scan && (changes.added?.length || changes.changed?.length || changes.removed?.length)) {
                 const badges = [];
-                if (changes.added?.length) badges.push(`<span class="inline-flex items-center gap-0.5 text-[10px] text-green-600"><i class="fa fa-plus-circle"></i>新增 ${changes.added.length}</span>`);
-                if (changes.changed?.length) badges.push(`<span class="inline-flex items-center gap-0.5 text-[10px] text-orange-600"><i class="fa fa-exchange"></i>变更 ${changes.changed.length}</span>`);
-                if (changes.removed?.length) badges.push(`<span class="inline-flex items-center gap-0.5 text-[10px] text-red-600"><i class="fa fa-minus-circle"></i>删除 ${changes.removed.length}</span>`);
+                if (changes.added?.length) badges.push(`<span class="inline-flex items-center gap-1 text-[11px] text-green-600"><i class="fa fa-plus-circle"></i>新增 ${changes.added.length}</span>`);
+                if (changes.changed?.length) badges.push(`<span class="inline-flex items-center gap-1 text-[11px] text-orange-600"><i class="fa fa-exchange"></i>变更 ${changes.changed.length}</span>`);
+                if (changes.removed?.length) badges.push(`<span class="inline-flex items-center gap-1 text-[11px] text-red-600"><i class="fa fa-minus-circle"></i>删除 ${changes.removed.length}</span>`);
                 changesHtml = `
-                    <div class="border border-gray-100 rounded-lg px-3 py-2 bg-gray-50/50">
-                        <span class="text-[10px] text-gray-500 font-medium mr-2"><i class="fa fa-exchange mr-0.5"></i>变更追踪</span>${badges.join('<span class="text-gray-300 mx-1">|</span>')}
+                    <div class="flex items-center gap-3 py-2 border-t border-gray-100">
+                        <span class="text-[11px] text-gray-400 font-medium"><i class="fa fa-exchange mr-1"></i>变更追踪</span>
+                        <div class="flex items-center gap-3">${badges.join('<span class="text-gray-200">·</span>')}</div>
                     </div>
                 `;
             }
@@ -3456,8 +3598,8 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             const statusJustCompleted = !isRunning && cached && cached.status === 'running';
 
             const hasFullData = task.std_items && task.std_items.length > 0;
-            // 运行中每 5 秒拉一次 detail API，完成时立即拉取，其余用缓存
-            const needApiFetch = !hasFullData || statusJustCompleted || (isRunning && now - lastFetch > 5000);
+            // 运行中每 2 秒拉一次 detail API（及时更新下载状态），完成时立即拉取，其余用缓存
+            const needApiFetch = !hasFullData || statusJustCompleted || (isRunning && now - lastFetch > 2000);
 
             let fullTask = null;
             if (needApiFetch) {
@@ -3486,7 +3628,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 fullTask.changes = task.changes || fullTask.changes;
                 fullTask.status = task.status || fullTask.status;
                 fullTask.end_time = task.end_time || fullTask.end_time;
-                fullTask.duration = task.duration != null ? task.duration : (task.start_time ? (task.end_time ? task.end_time - task.start_time : Date.now()/1000 - task.start_time) : null);
+                fullTask.duration = _computeTaskDuration(task) || _computeTaskDuration(fullTask);
                 detailCache[taskId] = fullTask;
             } else {
                 detailCache[taskId] = task;

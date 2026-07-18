@@ -8,7 +8,6 @@ import asyncio
 import time
 import threading
 import logging
-from pathlib import Path
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Request
@@ -143,12 +142,21 @@ def run_scheduled_scan(job_id: str, job_config: dict):
         if main_loop and main_loop.is_running():
             asyncio.run_coroutine_threadsafe(_do_and_finish(), main_loop)
         else:
-            _log.warning("主事件循环未就绪，使用独立事件循环（回退模式）")
-            new_loop = asyncio.new_event_loop()
-            try:
-                new_loop.run_until_complete(_do_and_finish())
-            finally:
-                new_loop.close()
+            # 主事件循环未就绪：不再回退到独立 loop（run_scan_pipeline 内部依赖主循环状态，
+            # 行为不一致且容易产生竞态）。直接标记任务失败并通知用户。
+            _log.error(f"定时任务 {job_id} 启动失败：主事件循环未就绪")
+            if task_id:
+                _task_manager.update(task_id, status="failed",
+                                     message="服务未就绪（主事件循环未运行），请稍后重试",
+                                     end_time=time.time())
+            if _state.ns:
+                try:
+                    _state.ns.send_message(
+                        "⚠️ 定时任务无法执行",
+                        f"任务 {job_id} 启动时主事件循环未就绪。\n"
+                        f"可能原因：服务正在启动/关闭中。\n时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                except Exception as ne:
+                    _log.error(f"发送错误通知失败: {ne}")
     except Exception as e:
         _log.error(f"定时任务启动失败: {job_id}, {e}")
 
@@ -173,7 +181,8 @@ def init_config_logger():
             if isinstance(h, logging.FileHandler):
                 _log.removeHandler(h)
         if save_to_file:
-            log_dir = Path.home() / ".std_scanner" / "logs"
+            from config.paths import LOG_DIR
+            log_dir = LOG_DIR
             log_dir.mkdir(parents=True, exist_ok=True)
             log_file = log_dir / f'std_scraper_{datetime.now().strftime("%Y%m%d")}.log'
             file_handler = logging.FileHandler(log_file, encoding='utf-8')

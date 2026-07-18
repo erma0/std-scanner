@@ -12,25 +12,24 @@ from version import VERSION, APP_NAME
 import asyncio
 import mimetypes
 import time
-from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 
+from config.paths import STATIC_DIR, UI_FILE
 from app.helpers import get_logger
 from app.dedup import start_file_watcher, stop_file_watcher
 from app.notifier import get_notification_service
 from app.managers import task_manager, scheduler_manager
 
 # === 必须在路由模块导入之前初始化 state ===
-# 因为各路由模块在 import 时就 from .state import task_manager
-# 如果 state 在 import 之后才赋值，各模块拿到的始终是 None
+# 子路由模块 import 时执行 `from .state import task_manager` 会按值快照，
+# 因此必须先调用 state.init_state() 再导入子路由。
+# 详见 state.py 模块文档。
 from app.routes import state
-state.task_manager = task_manager
-state.scheduler_mgr = scheduler_manager
-state.ns = get_notification_service()
+state.init_state(task_manager, scheduler_manager, get_notification_service())
 
 # 导入所有路由模块
 from app.routes.scheduled import router as scheduled_router
@@ -50,10 +49,14 @@ from config.settings import SERVER_PORT as _SERVER_PORT
 _SERVER_ORIGINS = [f"http://localhost:{_SERVER_PORT}", f"http://127.0.0.1:{_SERVER_PORT}", "file://", "null"]
 
 
-def setup_pywebview(window, loop):
-    global pywebview_window, _main_loop
+def setup_pywebview(window, loop=None):
+    """注入 pywebview 窗口对象到 API 模块。
+
+    loop 参数已废弃（lifespan 启动时会用 running loop 覆盖 state._main_loop），
+    保留参数仅为兼容旧调用方，传 None 即可。
+    """
+    global pywebview_window
     pywebview_window = window
-    _main_loop = loop
     state.setup_pywebview(window, loop)
 
 
@@ -64,7 +67,9 @@ logger = get_logger()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.routes.scheduled import init_config_logger, run_scheduled_scan
+    from app.routes.sse import sse_reset
     init_config_logger()
+    sse_reset()  # 清理上次运行残留（测试/热重载场景必需）
     logger.info(f"{APP_NAME} API v{VERSION} 启动")
 
     global _main_loop
@@ -79,15 +84,16 @@ async def lifespan(app: FastAPI):
         retention = tc.get('retention_hours', 168)
         max_tasks = tc.get('max_tasks', 200)
         task_manager.cleanup_completed(max_age_hours=retention, max_tasks=max_tasks)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"加载任务保留策略失败，使用默认清理: {e}")
         task_manager.cleanup_completed()
 
     # 启动时清理 30 天前的旧通知记录
     try:
         import app.database as _db
         _db.cleanup_notification_logs(max_age_days=30)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"清理通知日志失败: {e}")
 
     start_file_watcher()
     scheduler_manager.start()
@@ -108,8 +114,8 @@ async def lifespan(app: FastAPI):
         from config.settings import http_client, close_captcha_clients
         close_captcha_clients()
         http_client.close()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"关闭 HTTP 客户端失败: {e}")
     logger.info("标准速递 API 关闭")
 
 
@@ -135,7 +141,7 @@ app.add_middleware(
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
     from fastapi.responses import FileResponse
-    ico = Path(__file__).parent.parent.parent / "static" / "icon.ico"
+    ico = STATIC_DIR / "icon.ico"
     if ico.exists():
         return FileResponse(ico, media_type="image/x-icon")
     return HTMLResponse(status_code=404)
@@ -144,9 +150,8 @@ async def favicon():
 # 挂载静态文件（注册 SVG MIME 类型以兼容 Windows）
 try:
     mimetypes.add_type('image/svg+xml', '.svg')
-    static_dir = Path(__file__).parent.parent.parent / "static"
-    if static_dir.exists():
-        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    if STATIC_DIR.exists():
+        app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 except Exception as e:
     logger.warning(f"挂载静态文件失败: {e}")
 
@@ -166,9 +171,8 @@ app.include_router(checkpoint_router)
 
 @app.get("/")
 async def root_ui():
-    ui_path = Path(__file__).parent.parent.parent / "ui.html"
-    if ui_path.exists():
-        return HTMLResponse(ui_path.read_text(encoding='utf-8'))
+    if UI_FILE.exists():
+        return HTMLResponse(UI_FILE.read_text(encoding='utf-8'))
     return HTMLResponse("<h1>标准速递</h1><p>ui.html 未找到</p>")
 
 
@@ -181,13 +185,15 @@ async def health_check():
         # count_tasks 在表缺失/DB 损坏时会抛异常，由这里捕获并标记 db_ok=False
         import app.database as database
         db_count = database.count_tasks()
-    except Exception:
+    except Exception as e:
+        logger.warning(f"健康检查：数据库查询失败: {e}")
         db_ok = False
 
     try:
         from app.dedup import get_dedup_stats
         dedup_stats = get_dedup_stats()
-    except Exception:
+    except Exception as e:
+        logger.warning(f"健康检查：获取去重状态失败: {e}")
         dedup_stats = {}
 
     return {

@@ -13,6 +13,9 @@ _log = logging.getLogger('std_scraper')
 from config.settings import get_output_dir
 from config.manager import load_config
 
+# ==================== 常量 ====================
+_CACHE_TTL_SECONDS = 600  # 去重缓存窗口（秒）
+
 # ==================== 缓存状态 ====================
 _existing_files_cache = None
 _existing_files_mtime = {}
@@ -25,28 +28,34 @@ _file_watcher_stop = None
 
 # ==================== 去重目录缓存 ====================
 _existing_dirs_cache = None
+_existing_dirs_lock = threading.Lock()
 
 
 def invalidate_existing_dirs_cache():
     """使去重目录缓存失效"""
     global _existing_dirs_cache
-    _existing_dirs_cache = None
+    with _existing_dirs_lock:
+        _existing_dirs_cache = None
 
 
 def get_existing_dirs() -> list:
     """从配置获取用于去重检查的本地文件夹列表"""
     global _existing_dirs_cache
-    if _existing_dirs_cache is not None:
-        return _existing_dirs_cache
+    with _existing_dirs_lock:
+        if _existing_dirs_cache is not None:
+            return _existing_dirs_cache
 
     try:
         config = load_config()
         dirs = config.get('download', {}).get('existing_dirs', [])
-        _existing_dirs_cache = [d for d in dirs if d and os.path.isdir(d)]
-    except Exception:
-        _existing_dirs_cache = []
+        result = [d for d in dirs if d and os.path.isdir(d)]
+    except Exception as e:
+        _log.warning(f"加载去重目录配置失败: {e}")
+        result = []
 
-    return _existing_dirs_cache
+    with _existing_dirs_lock:
+        _existing_dirs_cache = result
+    return result
 
 
 # ==================== 递归扫描 ====================
@@ -75,20 +84,6 @@ def _get_folder_mtime(path: str) -> float:
         return 0
 
 
-def _need_rescan() -> bool:
-    """判断是否需要重新扫描（600s 缓存过期 或 文件夹 mtime 变化）"""
-    global _existing_files_last_scan
-    if time.time() - _existing_files_last_scan > 600:
-        return True
-    dirs = [str(get_output_dir())] + get_existing_dirs()
-    for d in dirs:
-        old_mtime = _existing_files_mtime.get(d, 0)
-        new_mtime = _get_folder_mtime(d)
-        if new_mtime > old_mtime:
-            return True
-    return False
-
-
 def _scan_single_dir(path: str) -> tuple:
     """扫描单个目录，返回 (文件集合, 文件数量)"""
     if not path or not os.path.isdir(path):
@@ -96,19 +91,36 @@ def _scan_single_dir(path: str) -> tuple:
     try:
         files = _scandir_recursive(path)
         return files, len(files)
-    except Exception:
+    except Exception as e:
+        _log.debug(f"扫描目录失败 {path}: {e}")
         return set(), 0
 
 
 def get_existing_files(force_refresh: bool = False) -> set:
     """
     获取所有已有 PDF 文件名集合（用于去重）。
-    600s 缓存窗口，通过文件夹 mtime 判断是否需重扫。
+    缓存窗口由 _CACHE_TTL_SECONDS 控制，通过文件夹 mtime 判断是否需重扫。
     """
     global _existing_files_cache, _existing_files_last_scan, _existing_files_mtime
 
-    if _existing_files_cache is not None and not force_refresh and not _need_rescan():
-        return _existing_files_cache
+    # 快速路径：缓存有效直接返回快照
+    with _cache_lock:
+        if _existing_files_cache is not None and not force_refresh:
+            last_scan = _existing_files_last_scan
+            mtimes = dict(_existing_files_mtime)
+            cached = _existing_files_cache
+        else:
+            cached = None
+            last_scan = 0
+            mtimes = {}
+    if cached is not None and time.time() - last_scan <= _CACHE_TTL_SECONDS:
+        need = False
+        for d in [str(get_output_dir())] + get_existing_dirs():
+            if _get_folder_mtime(d) > mtimes.get(d, 0):
+                need = True
+                break
+        if not need:
+            return cached
 
     existing = set()
     dirs = [str(get_output_dir())] + get_existing_dirs()
@@ -127,9 +139,7 @@ def get_existing_files(force_refresh: bool = False) -> set:
     with _cache_lock:
         _existing_files_cache = existing
         _existing_files_last_scan = time.time()
-        for d in dirs:
-            if d and os.path.isdir(d):
-                _existing_files_mtime[d] = _get_folder_mtime(d)
+        _existing_files_mtime = {d: _get_folder_mtime(d) for d in dirs if d and os.path.isdir(d)}
 
     elapsed = time.time() - start_time
     _log.info(f"去重扫描完成: {len(existing)} 个 PDF (耗时 {elapsed:.1f}s)")
@@ -192,16 +202,24 @@ def start_file_watcher():
 def stop_file_watcher():
     """停止文件监控"""
     global _file_watcher_thread, _file_watcher_stop
-    if _file_watcher_stop:
-        _file_watcher_stop.set()
+    stop_event = _file_watcher_stop
+    thread = _file_watcher_thread
+    if stop_event:
+        stop_event.set()
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=2)
     _file_watcher_thread = None
     _log.info("文件监控已停止")
 
 
 def get_dedup_stats() -> dict:
     """获取去重系统状态（供 health API 使用）"""
+    with _cache_lock:
+        cached_count = len(_existing_files_cache) if _existing_files_cache else 0
+        last_scan = _existing_files_last_scan
+    watcher_thread = _file_watcher_thread
     return {
-        "cached_files": len(_existing_files_cache) if _existing_files_cache else 0,
-        "last_scan_ago_seconds": round(time.time() - _existing_files_last_scan, 1) if _existing_files_last_scan else None,
-        "file_watcher_active": _file_watcher_thread is not None and _file_watcher_thread.is_alive(),
+        "cached_files": cached_count,
+        "last_scan_ago_seconds": round(time.time() - last_scan, 1) if last_scan else None,
+        "file_watcher_active": watcher_thread is not None and watcher_thread.is_alive(),
     }

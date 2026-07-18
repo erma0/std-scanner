@@ -7,16 +7,16 @@ import os
 import logging
 
 from .state import task_manager
-from app.helpers import atomic_write
 from ._utils import launch_task as _launch_task, create_combined_scan_tasks
 from .scan import _create_scan_task
 from app.keywords import set_active_group
 from app.scanner.utils import compute_download_stats, make_filename
-from app.scanner.hb_scan import download_hb_with_captcha
+from app.scanner.hb_scan import download_hb_with_captcha, CopyrightError
 from app.scanner.download import download_with_captcha
+from app.scanner.download_helpers import fetch_and_save_pdf
 from app.scanner.gb_scan import extract_hcno
-from app.dedup import get_existing_files, add_to_existing_files_cache
-from config.settings import get_output_dir, DELAY
+from app.dedup import get_existing_files
+from config.settings import get_output_dir, get_delay
 
 _log = logging.getLogger('std_scraper')
 
@@ -43,12 +43,12 @@ async def _do_retry_one(item, std_type, output_dir, existing):
             return False, 'failed_no_hcno'
 
         loop = asyncio.get_running_loop()
-        pdf_data = await loop.run_in_executor(None, download_with_captcha, hcno)
+        pdf_data = await loop.run_in_executor(
+            None, fetch_and_save_pdf,
+            lambda: download_with_captcha(hcno), filepath, filename, output_dir)
         if pdf_data:
-            atomic_write(str(filepath), pdf_data, dir_=str(output_dir))
             item['dlStatus'] = 'downloaded'
             item['fileSize'] = len(pdf_data)
-            add_to_existing_files_cache(filename)
             return True, 'downloaded'
         else:
             item['dlStatus'] = 'failed'
@@ -62,11 +62,16 @@ async def _do_retry_one(item, std_type, output_dir, existing):
             return False, 'failed_no_pk'
 
         loop = asyncio.get_running_loop()
-        pdf_data = await loop.run_in_executor(None, download_hb_with_captcha, pk, site_type)
+        try:
+            pdf_data = await loop.run_in_executor(
+                None, fetch_and_save_pdf,
+                lambda: download_hb_with_captcha(pk, site_type),
+                filepath, filename, output_dir)
+        except CopyrightError:
+            item['dlStatus'] = 'copyright'
+            return False, 'copyright'
         if pdf_data:
-            atomic_write(str(filepath), pdf_data, dir_=str(output_dir))
             item['dlStatus'] = 'downloaded'
-            add_to_existing_files_cache(filename)
             return True, 'downloaded'
         else:
             item['dlStatus'] = 'failed'
@@ -84,8 +89,28 @@ async def get_task_status(task_id: str):
 
 @router.get("/api/tasks")
 async def get_all_tasks(status: Optional[str] = None):
-    """获取所有任务（可按状态筛选）"""
-    return task_manager.get_all(status_filter=status)
+    """获取所有任务（可按状态筛选）。
+
+    为每个任务动态计算 duration 字段（运行中任务用当前时间，暂停状态不计入新增时长）。
+    """
+    tasks = task_manager.get_all(status_filter=status)
+    now = time.time()
+    for t in tasks:
+        start_time = t.get('start_time')
+        if not start_time:
+            continue
+        end_time = t.get('end_time')
+        if end_time is None and t.get('status') == 'running':
+            end_time = now
+        if not end_time:
+            continue
+        paused_dur = t.get('paused_duration', 0) or 0
+        if t.get('status') == 'paused':
+            paused_at = t.get('paused_at')
+            if paused_at:
+                paused_dur += max(0, now - paused_at)
+        t['duration'] = max(0, end_time - start_time - paused_dur)
+    return tasks
 
 
 @router.delete("/api/task/{task_id}")
@@ -188,7 +213,13 @@ async def get_task_detail_api(task_id: str):
         if end_time is None and task.get('status') == 'running':
             end_time = time.time()
         if end_time:
-            duration = max(0, end_time - task['start_time'] - task.get('paused_duration', 0))
+            paused_dur = task.get('paused_duration', 0) or 0
+            # 暂停状态下不计入暂停期间的新增时长
+            if task.get('status') == 'paused':
+                paused_at = task.get('paused_at')
+                if paused_at:
+                    paused_dur += max(0, time.time() - paused_at)
+            duration = max(0, end_time - task['start_time'] - paused_dur)
 
     result = dict(task)
     result['duration'] = duration
@@ -261,8 +292,10 @@ async def retry_all_failed(task_id: str):
     failed_indices = []
     for i, s in enumerate(items):
         ds = s.get('dlStatus', '')
-        # failed_no_hcno / failed_no_pk 不可重试（hcno/pk 不会凭空出现）
-        if ds and ds not in ('failed_no_hcno', 'failed_no_pk') and (ds == 'failed' or ds.startswith('failed_') or ds.startswith('error:')):
+        # 不可重试的状态：failed_no_hcno / failed_no_pk（hcno/pk 不会凭空出现）
+        # no_hcno 可重试：标准之前太新未发布到 openstd，现在可能已发布
+        # copyright 不可重试：版权保护是网站限制
+        if ds in ('failed', 'failed_hcno', 'failed_preview', 'no_hcno') or ds.startswith('error:'):
             failed_indices.append(i)
 
     if not failed_indices:
@@ -298,7 +331,7 @@ async def retry_all_failed(task_id: str):
         task_manager.update(task_id, std_items=items,
                           stats=compute_download_stats(items),
                           message=f"批量重试 {i+1}/{len(failed_indices)}: {'OK' if ok else 'FAIL'}")
-        await asyncio.sleep(DELAY)
+        await asyncio.sleep(get_delay())
 
     task_manager.update(task_id, std_items=items,
                       stats=compute_download_stats(items),

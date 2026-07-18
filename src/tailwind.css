@@ -30,22 +30,25 @@
 }
 
 /* ==================== 布局 ==================== */
-/* 全局禁止文字选中（无边框窗口拖动需要） */
-body {
-  user-select: none;
-  -webkit-user-select: none;
-}
-input, textarea, [contenteditable] {
-  user-select: text;
-  -webkit-user-select: text;
-}
+/* 主内容区允许文字选择（便于复制标准号/名称等）
+   仅标题栏 .app-header 禁用选中（拖动区域需要） */
 .app-layout {
   display: flex;
   flex-direction: column;
   height: 100vh;
 }
 
-.app-header { flex-shrink: 0; z-index: 30; }
+/* 标题栏：禁用文字选中（拖动需要），置顶层级 */
+.app-header {
+  flex-shrink: 0;
+  z-index: 30;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* 标题栏内的按钮允许点击交互 */
+.app-header button {
+  -webkit-app-region: no-drag;
+}
 
 .app-body {
   display: flex;
