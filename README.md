@@ -2,19 +2,23 @@
 
 基于全国标准信息公共服务平台 (std.samr.gov.cn) 的安全标准批量扫描与下载工具，支持国家标准、行业标准、地方标准三类。
 
-> AI 开发文档见 [`AGENTS.md`](AGENTS.md)，项目长期记忆见 [`.workbuddy/memory/MEMORY.md`](.workbuddy/memory/MEMORY.md)。
+> AI 开发文档见 [`AGENTS.md`](AGENTS.md)。
 
 ## 功能特性
 
 - **三类标准全覆盖**：国家标准 / 行业标准 / 地方标准，支持联合扫描
+- **状态筛选**：现行 / 即将实施 / 废止 / 全部，跨网站自动兼容
+- **增量扫描**：逐条精确比对（GB 用 id、HB/DB 用 pk），遇到上次位置即停
 - **智能去重**：os.scandir 高速扫描 + 多线程并行 + watchfiles 实时监控
-- **验证码自动识别**：ddddocr 驱动，自动重试 5-8 次
-- **预览转 PDF**：拼图块自动合成，无需人工操作
+- **验证码自动识别**：ddddocr 驱动，原图优先 + 多预处理策略 + Otsu 自适应阈值，最多 12 次重试
+- **预览转 PDF**：拼图块自动合成，无需人工操作（需安装 Playwright）
+- **下载并发**：可配置 1-10 并发，每任务独立 HTTP client 避免验证码 session 串扰
 - **桌面应用**：pywebview 窗口 + 系统托盘，支持最小化到托盘
-- **WebUI 界面**：现代化 Web 界面，支持搜索、扫描、任务管理、通知配置
+- **WebUI 界面**：现代化 Web 界面，支持搜索、扫描、任务管理、通知配置、任务搜索筛选
 - **多渠道通知**：Server酱 / PushPlus / 企业微信 / 钉钉
 - **定时任务**：Cron 表达式定时扫描，支持启用/禁用/手动触发
-- **任务控制**：支持暂停/继续/重试，进度实时反馈
+- **任务控制**：支持暂停/继续/重试/单条重试/批量重试失败项/优先级插队，进度实时反馈
+- **标准变更追踪**：自动对比上次扫描结果，标记新增/变更/移除
 
 ## 快速开始
 
@@ -70,7 +74,7 @@ python -m app.scanner.quick --scan-db=all           # 全部省份
 | `--max-pages=N` | 扫描最大条数（HB/DB 通用） | 500 |
 | `--scan-only` | 只扫描不下载 | — |
 | `--dl-only` | 仅从已有 `safety_full.json` 下载 | — |
-| `--incr` | 增量模式（断点续扫） | — |
+| `--incr` | 增量模式（断点续扫，遇上次位置即停） | — |
 | `--search=关键词` | 搜索下载（内部 API） | — |
 | `--search-web=关键词` | 搜索下载（标准检索网站） | — |
 | `--scan-hb[=行业]` | 扫描行业标准 | 安全相关 |
@@ -80,6 +84,8 @@ python -m app.scanner.quick --scan-db=all           # 全部省份
 | `--keywords=PATH` | 从文件加载关键词（每行一个，`#` 注释） | — |
 | `--delay=N` | 请求间隔（秒） | 3 |
 | `--output-dir=PATH` | PDF 存放路径 | ~/Downloads/安全标准 |
+
+> 状态筛选（现行/即将实施/废止/全部）仅在 WebUI 中支持，CLI 未暴露。
 
 ## 辅助工具
 
@@ -99,21 +105,21 @@ python tools/analyze_dup.py "D:\标准规范" --output csv   # 或 json
 
 | 标准类型 | 可下载 | 说明 |
 |---------|--------|------|
-| 国家标准 | ✅ | 公开 PDF 下载，支持预览转 PDF |
-| 行业标准 | ✅ | 验证码下载，支持 AQ/XF/GA 等行业 |
-| 地方标准 | ✅ | 验证码下载，支持各省地方标准 |
+| 国家标准 | ✅ | 公开 PDF 下载（验证码），支持预览转 PDF |
+| 行业标准 | ✅ | 直接下载（无需验证码），AQ/XF/JG/DL/SL 可下载，YS/HG/JT 版权限制 |
+| 地方标准 | ✅ | 直接下载（无需验证码） |
 | 国家标准计划 | ❌ | 仅计划信息，无 PDF |
 
 ## 通知配置
 
 支持以下通知渠道，在 WebUI 中配置：
 
-| 渠道 | 说明 |
-|------|------|
-| Server酱 | 微信推送 (sctapi.ftqq.com) |
-| PushPlus | 微信推送 (pushplus.plus) |
-| 企业微信 | Webhook 机器人推送 |
-| 钉钉 | Webhook + Secret 签名 |
+| 渠道 | 字段 | 说明 |
+|------|------|------|
+| Server酱 | `sckey` | 微信推送 (sctapi.ftqq.com) |
+| PushPlus | `token` | 微信推送 (pushplus.plus) |
+| 企业微信 | `webhook` | Webhook 机器人推送 |
+| 钉钉 | `webhook` + `secret` | Webhook + Secret 签名 |
 
 ## 配置文件
 
@@ -125,27 +131,45 @@ python tools/analyze_dup.py "D:\标准规范" --output csv   # 或 json
     "output_dir": "~/Downloads/安全标准",
     "delay": 3.0,
     "concurrent": 1,
-    "max_retries": 3
+    "max_retries": 3,
+    "retry_delay": 2.0,
+    "allow_preview": true,
+    "preview_quality": 0.6,
+    "strategy": "full",
+    "duplicate_check_strategy": "early"
   },
   "notifications": {
-    "serverchan": { "enabled": false, "sckey": "" },
-    "wecom": { "enabled": false, "webhook": "" }
+    "serverchan": {"enabled": false, "sckey": ""},
+    "pushplus":   {"enabled": false, "token": ""},
+    "wecom":      {"enabled": false, "webhook": ""},
+    "dingtalk":   {"enabled": false, "webhook": "", "secret": ""}
   },
-  "logging": { "level": "INFO" }
+  "logging": {"level": "INFO", "save_to_file": true},
+  "tasks": {
+    "retention_hours": 168,
+    "max_tasks": 200
+  }
 }
 ```
+
+**关键配置项**：
+- `download.concurrent`：下载并发度，1-10（默认 1，增大可能触发反爬）
+- `download.preview_quality`：预览 PDF 质量，0.3-1.0（默认 0.6）
+- `tasks.retention_hours`：任务历史保留时长，默认 168 小时（7 天）
+- `tasks.max_tasks`：任务历史最大条数，默认 200
 
 ## 安全关键词
 
 覆盖 113 安全相关关键词：消防 / 化工 / 机械 / 电气 / 特种设备 / 矿山 / 建筑 / 职业卫生 / 应急 / 交通 / 防护等。
 
-自动排除：信息安全 / 网络安全 / 数据安全 / 食品安全（内置）+ 用户自定义排除词（界面配置）
+自动排除：信息安全 / 网络安全 / 数据安全 / 食品安全 / 农产品 / 饲料（内置）+ 用户自定义排除词（界面配置）
 
 ## 版本历史
 
 | 版本 | 更新内容 |
 |------|---------|
-| v1.0.0 | 当前版本（详见 [AGENTS.md](AGENTS.md) 修改记录） |
+| v1.1.0 | 增量扫描全面优化（逐条精确比对遇上次位置即停）、任务列表新任务置顶、中断任务自动清理、下载并发支持（1-10）、download_helpers 模块拆分、GB 下载合并 hcno 提取、HB/DB 移除误用验证码流程、状态筛选统一（现行/即将实施/废止/全部）、SSE 增强、验证码原图识别+Otsu 优化、退出资源清理、端口冲突修复、配置字段名规范化 |
+| v1.0.0 | 完整的国标/行标/地标扫描+下载链路、安全关键词多组管理、SSE 实时推送、任务优先级、统一增量 checkpoint、预览转 PDF、多渠道通知、文件去重+实时监控、定时扫描、标准变更快照对比 |
 | v3.9.1 | 性能优化(save_task_light)、GB下载重构(showGb→verifyCode→viewGb)、hcno智能提取、PDF类型验证、端口冲突修复 |
 | v3.9.0 | Targeted DOM Update 消除 UI 抖动、std_items 全量持久化、清理策略可配置(时长+数量上限) |
 | v3.8.0 | 下载状态实时推送(SSE)、per-item 重试/批量重试、扫描中间结果推送、预览禁用识别 |
