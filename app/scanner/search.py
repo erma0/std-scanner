@@ -105,9 +105,9 @@ def check_downloadable(tid):
     if tid == 'BV_GB':
         return True, '国家标准，可下载'
     elif tid == 'BV_HB':
-        return True, '行业标准，可下载（通过验证码）'
+        return True, '行业标准，可下载'
     elif tid == 'BV_DB':
-        return True, '地方标准，可下载（通过验证码）'
+        return True, '地方标准，可下载'
     elif tid == 'BV_GB_PLAN':
         return False, '国家标准计划，仅计划信息，无PDF'
     else:

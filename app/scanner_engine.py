@@ -18,10 +18,10 @@ _log = logging.getLogger('std_scraper')
 
 # 运行时依赖 — 在 scan_gb/scan_hb/scan_db 中按需调用
 from app.scanner import (
-    scan_pages, extract_hcno, download_phase,
+    scan_pages, download_phase,
     scan_hb_standards, download_hb_standards,
     scan_db_standards, download_db_standards,
-    save_progress, compare_snapshot,
+    compare_snapshot,
     compute_download_stats,
 )
 
@@ -66,18 +66,21 @@ async def run_scan_pipeline(
     async def _on_scan_progress(pct, msg):
         if task_manager and task_id:
             scaled = progress_base + max(1, int(pct * progress_per_scan / 100))
-            task_manager.update(task_id, progress=scaled, message=msg, persist_std_items=False)
+            task_manager.update(task_id, progress=scaled, scan_progress=pct,
+                              message=msg, persist_std_items=False)
 
     async def _on_dl_progress(pct, msg):
         if task_manager and task_id:
             scaled = progress_base + progress_per_scan + max(1, int(pct * progress_per_download / 100))
-            task_manager.update(task_id, progress=scaled, message=msg, persist_std_items=False)
+            task_manager.update(task_id, progress=scaled, dl_progress=pct,
+                              message=msg, persist_std_items=False)
 
     def _on_sync_scan_progress(pct, msg):
         """同步回调（用于 run_in_executor 中的 HB/DB 扫描）"""
         if task_manager and task_id:
             scaled = progress_base + max(1, int(pct * progress_per_scan / 100))
-            task_manager.update(task_id, progress=scaled, message=msg, persist_std_items=False)
+            task_manager.update(task_id, progress=scaled, scan_progress=pct,
+                              message=msg, persist_std_items=False)
 
     _intermediate_counter = [0]
 
@@ -130,7 +133,8 @@ async def run_scan_pipeline(
     if task_manager and task_id:
         task_manager.update(task_id,
             progress=progress_base + 1,
-            message=f"正在扫描{type_label}...")
+            scan_progress=0,
+            message=f"扫描中{type_label}...")
 
     standards = []
 
@@ -172,6 +176,7 @@ async def run_scan_pipeline(
     if task_manager and task_id:
         task_manager.update(task_id,
             progress=progress_base + progress_per_scan,
+            scan_progress=100,
             message=f"{type_label}扫描完成({len(standards)}条)",
             stats={'scanned': len(standards)},
             std_items=standards)
@@ -203,7 +208,8 @@ async def run_scan_pipeline(
     if task_manager and task_id:
         task_manager.update(task_id,
             progress=progress_base + progress_per_scan + 1,
-            message=f"正在下载{type_label}...")
+            dl_progress=0,
+            message=f"下载中{type_label}...")
 
     # 创建 per-item 回调：每处理一条标准后实时推送 stats 和 std_items
     _item_counter = [0]
@@ -222,9 +228,8 @@ async def run_scan_pipeline(
             task_manager.update(task_id, **kwargs)
 
     if scan_type == 'gb':
-        # GB 需要先提取 hcno
-        await extract_hcno(standards)
-        save_progress(standards, force=True)
+        # hcno 提取已合并到 download_phase 串行阶段，不再独立调用 extract_hcno
+        # 这样进度条从扫描完成后持续移动，不再有独立的"提取链接"卡顿阶段
         await download_phase(standards, allow_preview_override=config.get('allow_preview'),
                              on_progress=_on_dl_progress, on_item_done=_on_item_done,
                              check_pause=_check_pause)
@@ -238,9 +243,10 @@ async def run_scan_pipeline(
     if task_manager and task_id:
         task_manager.update(task_id,
             progress=progress_base + progress_per_scan + progress_per_download,
-            message=f"{type_label}处理完成({len(standards)}条)",
+            dl_progress=100,
+            message=f"{type_label}下载完成({len(standards)}条)",
             stats=compute_download_stats(standards),
             std_items=standards)
 
-    _log.info(f"[ENGINE] {scan_type.upper()} 处理完成: {len(standards)} 条")
+    _log.info(f"[ENGINE] {scan_type.upper()} 下载完成: {len(standards)} 条")
     return standards

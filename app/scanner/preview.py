@@ -8,6 +8,7 @@ import re
 import tempfile
 import shutil
 import math
+from contextlib import asynccontextmanager
 
 from config.settings import (
     CAPTCHA_BASE, BROWSER_CHANNELS, http_client,
@@ -15,6 +16,15 @@ from config.settings import (
 from app.captcha import solve_captcha
 
 _log = logging.getLogger('std_scraper')
+
+# ==================== 常量 ====================
+_PREVIEW_CFG_CACHE_TTL = 10.0       # 预览质量配置缓存（秒）
+_MAX_PREVIEW_RETRIES = 5            # 预览验证码最大重试次数
+_DEFAULT_PAGE_W = 1190              # 默认页面宽度
+_DEFAULT_PAGE_H = 1680              # 默认页面高度
+_PUZZLE_GRID = 10                   # 拼图块网格（10x10）
+_PDF_DPI = 168                      # 合成 PDF 的 DPI
+_PREVIEW_DEFAULT_QUALITY = 0.6      # 预览质量默认值
 
 # 预览质量缓存
 _preview_quality_cache = None
@@ -25,14 +35,15 @@ def _get_preview_quality() -> float:
     """获取预览 PDF 缩放比例（带短时缓存）"""
     global _preview_quality_cache, _preview_quality_cache_ts
     now = time.monotonic()
-    if _preview_quality_cache is not None and (now - _preview_quality_cache_ts) < 10.0:
+    if _preview_quality_cache is not None and (now - _preview_quality_cache_ts) < _PREVIEW_CFG_CACHE_TTL:
         return _preview_quality_cache
     try:
         from config.manager import load_config
-        q = load_config().get('download', {}).get('preview_quality', 0.6)
+        q = load_config().get('download', {}).get('preview_quality', _PREVIEW_DEFAULT_QUALITY)
         q = max(0.3, min(1.0, float(q)))
-    except Exception:
-        q = 0.6
+    except Exception as e:
+        _log.debug(f"读取预览质量配置失败，使用默认值: {e}")
+        q = _PREVIEW_DEFAULT_QUALITY
     _preview_quality_cache = q
     _preview_quality_cache_ts = now
     return q
@@ -70,6 +81,115 @@ async def launch_browser():
     raise RuntimeError(f"Chrome/Edge 均不可用: {last_err}")
 
 
+@asynccontextmanager
+async def browser_session():
+    """Playwright 浏览器会话上下文管理器，自动关闭。
+
+    用法:
+        async with browser_session() as ctx:
+            if ctx is not None:
+                await preview_to_pdf(hcno, filepath, ctx)
+    """
+    playwright_mgr, ctx = await launch_browser()
+    try:
+        yield ctx
+    finally:
+        if playwright_mgr:
+            try:
+                await playwright_mgr.__aexit__(None, None, None)
+            except Exception as e:
+                _log.debug(f"Playwright 关闭异常: {e}")
+
+
+def _compose_page_images(page_data, tmp_dir, cookie_str, preview_url, quality):
+    """同步：下载背景图 + 拼图块合成 → 返回页面 Image 列表。
+
+    将网络下载 + CPU 密集的 PIL 处理合并到同一个 executor 任务中，
+    避免 async 函数中直接进行同步 I/O 与 CPU 计算阻塞事件循环。
+    """
+    page_images = []
+    for page_idx, pd in enumerate(page_data):
+        bg_file = pd.get('bg', '')
+        if not bg_file:
+            continue
+
+        style = pd.get('style', '')
+        size_match = re.findall(r'\d+', style)
+        pw = int(size_match[0]) if len(size_match) >= 1 else _DEFAULT_PAGE_W
+        ph = int(size_match[1]) if len(size_match) >= 2 else _DEFAULT_PAGE_H
+
+        bg_url = f"{CAPTCHA_BASE}/{bg_file}"
+        try:
+            bg_data = http_client.get(bg_url, headers={
+                'Cookie': cookie_str,
+                'Referer': preview_url,
+            }).content
+        except Exception as e:
+            _log.debug(f"  背景图下载失败(p{page_idx}): {e}")
+            continue
+
+        tmp_bg = os.path.join(tmp_dir, f"bg_{page_idx}.jpg")
+        with open(tmp_bg, 'wb') as f:
+            f.write(bg_data)
+
+        bg_img = None
+        try:
+            bg_img = Image.open(tmp_bg)
+            canvas = Image.new('RGB', (pw, ph), '#ffffff')
+            slice_w = math.ceil(pw / _PUZZLE_GRID)
+            slice_h = math.ceil(ph / _PUZZLE_GRID)
+
+            for span in pd.get('spans', []):
+                cls = span.get('cls', '')
+                parts = cls.split('-')
+                if len(parts) < 3:
+                    continue
+                row = int(parts[1])
+                col = int(parts[2])
+
+                bg_style = span.get('style', '')
+                pos_match = re.findall(r'\d+', bg_style)
+                if len(pos_match) < 2:
+                    continue
+                bg_x = int(pos_match[0])
+                bg_y = int(pos_match[1])
+
+                right = min(bg_x + slice_w, bg_img.width)
+                bottom = min(bg_y + slice_h, bg_img.height)
+                if right <= bg_x or bottom <= bg_y:
+                    continue
+                crop = bg_img.crop((bg_x, bg_y, right, bottom))
+                paste_x = row * slice_w
+                paste_y = col * slice_h
+                if paste_x + crop.width > pw:
+                    paste_x = max(0, pw - crop.width)
+                if paste_y + crop.height > ph:
+                    paste_y = max(0, ph - crop.height)
+                canvas.paste(crop, (paste_x, paste_y))
+
+            canvas = canvas.resize(
+                (int(pw * quality), int(ph * quality)),
+                Image.LANCZOS,
+            )
+            page_images.append(canvas.convert('RGB'))
+
+        except Exception as e:
+            _log.debug(f"      拼图错误(p{page_idx}): {str(e)[:40]}")
+        finally:
+            if bg_img:
+                bg_img.close()
+    return page_images
+
+
+def _save_page_images_as_pdf(page_images, filepath):
+    """同步：将页面 Image 列表保存为 PDF，并释放内存。"""
+    page_images[0].save(filepath, save_all=True, append_images=page_images[1:],
+                       resolution=_PDF_DPI, format='PDF')
+    for img in page_images:
+        img.close()
+    page_images.clear()
+
+
 async def preview_to_pdf(hcno, filepath, browser_context):
     """通过在线预览获取 PDF：下载背景图 → 拼图块 → 合成 PDF"""
     if browser_context is None:
@@ -79,7 +199,7 @@ async def preview_to_pdf(hcno, filepath, browser_context):
     tmp_dir = None
 
     try:
-        for retry in range(5):
+        for retry in range(_MAX_PREVIEW_RETRIES):
             preview_url = f"{CAPTCHA_BASE}/showGb?type=online&hcno={hcno}"
             await pg.goto(preview_url, wait_until='load', timeout=30000)
             await pg.wait_for_timeout(2000)
@@ -133,88 +253,18 @@ async def preview_to_pdf(hcno, filepath, browser_context):
         cookies = await browser_context.cookies()
         cookie_str = '; '.join(f"{c['name']}={c['value']}" for c in cookies)
 
-        page_images = []
         tmp_dir = tempfile.mkdtemp()
+        quality = _get_preview_quality()
 
-        for page_idx, pd in enumerate(page_data):
-            bg_file = pd.get('bg', '')
-            if not bg_file:
-                continue
-
-            style = pd.get('style', '')
-            size_match = re.findall(r'\d+', style)
-            pw = int(size_match[0]) if len(size_match) >= 1 else 1190
-            ph = int(size_match[1]) if len(size_match) >= 2 else 1680
-
-            bg_url = f"{CAPTCHA_BASE}/{bg_file}"
-            try:
-                loop = asyncio.get_running_loop()
-                bg_data = await loop.run_in_executor(None, lambda: http_client.get(bg_url, headers={
-                    'Cookie': cookie_str,
-                    'Referer': preview_url,
-                }).content)
-            except Exception as e:
-                _log.debug(f"  背景图下载失败(p{page_idx}): {e}")
-                continue
-
-            tmp_bg = os.path.join(tmp_dir, f"bg_{page_idx}.jpg")
-            with open(tmp_bg, 'wb') as f:
-                f.write(bg_data)
-
-            bg_img = None
-            try:
-                bg_img = Image.open(tmp_bg)
-                canvas = Image.new('RGB', (pw, ph), '#ffffff')
-                slice_w = math.ceil(pw / 10)
-                slice_h = math.ceil(ph / 10)
-
-                for span in pd.get('spans', []):
-                    cls = span.get('cls', '')
-                    parts = cls.split('-')
-                    if len(parts) < 3:
-                        continue
-                    row = int(parts[1])
-                    col = int(parts[2])
-
-                    bg_style = span.get('style', '')
-                    pos_match = re.findall(r'\d+', bg_style)
-                    if len(pos_match) < 2:
-                        continue
-                    bg_x = int(pos_match[0])
-                    bg_y = int(pos_match[1])
-
-                    right = min(bg_x + slice_w, bg_img.width)
-                    bottom = min(bg_y + slice_h, bg_img.height)
-                    if right <= bg_x or bottom <= bg_y:
-                        continue
-                    crop = bg_img.crop((bg_x, bg_y, right, bottom))
-                    paste_x = row * slice_w
-                    paste_y = col * slice_h
-                    if paste_x + crop.width > pw:
-                        paste_x = max(0, pw - crop.width)
-                    if paste_y + crop.height > ph:
-                        paste_y = max(0, ph - crop.height)
-                    canvas.paste(crop, (paste_x, paste_y))
-
-                canvas = canvas.resize(
-                    (int(pw * _get_preview_quality()), int(ph * _get_preview_quality())),
-                    Image.LANCZOS,
-                )
-                page_images.append(canvas.convert('RGB'))
-
-            except Exception as e:
-                _log.debug(f"      拼图错误(p{page_idx}): {str(e)[:40]}")
-            finally:
-                if bg_img:
-                    bg_img.close()
+        # PIL 拼图合成（网络下载 + CPU 密集）整体放到 executor 执行
+        loop = asyncio.get_running_loop()
+        page_images = await loop.run_in_executor(
+            None, _compose_page_images,
+            page_data, tmp_dir, cookie_str, preview_url, quality)
 
         if page_images:
-            page_images[0].save(filepath, save_all=True, append_images=page_images[1:],
-                               resolution=168, format='PDF')
-            # 释放所有页面 Image 对象的内存
-            for img in page_images:
-                img.close()
-            page_images.clear()
+            await loop.run_in_executor(
+                None, _save_page_images_as_pdf, page_images, filepath)
             shutil.rmtree(tmp_dir, ignore_errors=True)
             return True
 

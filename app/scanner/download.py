@@ -12,7 +12,7 @@ import logging
 
 import httpx
 
-from config.settings import GB_DOWNLOAD_BASE, DELAY, get_captcha_client
+from config.settings import GB_DOWNLOAD_BASE, get_delay, get_captcha_client
 from app.captcha import solve_captcha
 
 _log = logging.getLogger('std_scraper')
@@ -23,8 +23,13 @@ _NETWORK_EXCEPTIONS = (
     httpx.RemoteProtocolError,
 )
 
+# 默认重试次数（与 AGENTS.md 中"8次OCR重试"对齐：12 容错更充分）
+DEFAULT_MAX_OCR_RETRIES = 12
+DEFAULT_MAX_NETWORK_RETRIES = 3
+DEFAULT_MAX_PDF_RETRIES = 3
 
-def _unified_captcha_download(dl_config, max_ocr_retries=12, max_network_retries=3):
+
+def _unified_captcha_download(dl_config, max_ocr_retries=DEFAULT_MAX_OCR_RETRIES, max_network_retries=DEFAULT_MAX_NETWORK_RETRIES, client=None):
     """统一的验证码下载流程。
 
     区分三类错误：
@@ -40,59 +45,85 @@ def _unified_captcha_download(dl_config, max_ocr_retries=12, max_network_retries
             pdf_getter: callable(client) → pdf_bytes | None
         max_ocr_retries: OCR 验证码最大重试次数
         max_network_retries: 网络错误最大重试次数（独立计数）
+        client: 可选，外部传入的独立 httpx.Client（并发场景使用）。
+                None 时使用全局共享 client。传入时调用方负责关闭。
     Returns:
         pdf_data (bytes) or None
     """
     site_type = dl_config['site_type']
-    client = get_captcha_client(site_type)
+    # client=None → 用共享 client（向后兼容）；并发场景由调用方传入独立 client
+    own_client = client is not None
+    if client is None:
+        client = get_captcha_client(site_type)
 
     network_failures = 0
     pdf_failures = 0
-    max_pdf_retries = 3
+    max_pdf_retries = DEFAULT_MAX_PDF_RETRIES
     ocr_attempts = 0
+    # 累计失败原因统计（用于最终汇总日志）
+    fail_stats = {'ocr_empty': 0, 'verify_fail': 0, 'pdf_fail': 0, 'exception': 0}
 
-    while ocr_attempts < max_ocr_retries:
-        ocr_attempts += 1
-        try:
-            captcha_data = dl_config['captcha_getter'](client)
-            code = solve_captcha(captcha_data)
-            if not code or len(code) < 4:
-                time.sleep(DELAY)
-                continue
+    try:
+        while ocr_attempts < max_ocr_retries:
+            ocr_attempts += 1
+            try:
+                captcha_data = dl_config['captcha_getter'](client)
+                code = solve_captcha(captcha_data)
+                if not code or len(code) < 4:
+                    fail_stats['ocr_empty'] += 1
+                    _log.debug(f"[DL-{site_type}] OCR 返回空/过短: '{code}' (尝试 {ocr_attempts}/{max_ocr_retries})")
+                    time.sleep(get_delay())
+                    continue
 
-            if not dl_config['captcha_verifier'](client, code):
-                time.sleep(DELAY)
-                continue
+                if not dl_config['captcha_verifier'](client, code):
+                    fail_stats['verify_fail'] += 1
+                    _log.debug(f"[DL-{site_type}] 验证码校验失败: '{code}' (尝试 {ocr_attempts}/{max_ocr_retries})")
+                    time.sleep(get_delay())
+                    continue
 
-            pdf_data = dl_config['pdf_getter'](client)
-            if pdf_data and len(pdf_data) > 500 and pdf_data[:5] == b'%PDF-':
-                return pdf_data
+                pdf_data = dl_config['pdf_getter'](client)
+                if pdf_data and len(pdf_data) > 500 and pdf_data[:5] == b'%PDF-':
+                    if ocr_attempts > 1 or pdf_failures > 0:
+                        _log.info(f"[DL-{site_type}] 第 {ocr_attempts} 次尝试下载成功 (pdf_failures={pdf_failures})")
+                    return pdf_data
 
-            # 验证码通过但 PDF 获取失败 → 可能是 session 过期
-            # 重建客户端 session 后重试
-            pdf_failures += 1
-            if pdf_failures <= max_pdf_retries:
-                _log.debug(f"[DL] PDF获取失败(#{pdf_failures})，重建session重试")
-                client.cookies.clear()
-                time.sleep(DELAY)
-                continue
-            return None
-
-        except _NETWORK_EXCEPTIONS as e:
-            network_failures += 1
-            if network_failures > max_network_retries:
-                _log.warning(f"[DL] 网络重试耗尽 ({network_failures}/{max_network_retries}): {e}")
+                # 验证码通过但 PDF 获取失败 → 可能是 session 过期
+                # 重建客户端 session 后重试
+                pdf_failures += 1
+                fail_stats['pdf_fail'] += 1
+                if pdf_failures <= max_pdf_retries:
+                    _log.info(f"[DL-{site_type}] PDF获取失败(#{pdf_failures})，重建session重试 (尝试 {ocr_attempts}/{max_ocr_retries})")
+                    client.cookies.clear()
+                    time.sleep(get_delay())
+                    continue
+                _log.warning(f"[DL-{site_type}] PDF 重试耗尽 ({pdf_failures}/{max_pdf_retries})")
                 return None
-            _log.debug(f"[DL] 网络错误，重试 {network_failures}/{max_network_retries}: {e}")
-            time.sleep(DELAY * 2)
-            ocr_attempts -= 1
-            continue
 
-        except Exception as e:
-            _log.debug(f"[DL] 验证码下载尝试 {ocr_attempts}/{max_ocr_retries} 失败: {e}")
-            time.sleep(DELAY)
+            except _NETWORK_EXCEPTIONS as e:
+                network_failures += 1
+                if network_failures > max_network_retries:
+                    _log.warning(f"[DL-{site_type}] 网络重试耗尽 ({network_failures}/{max_network_retries}): {e}")
+                    return None
+                _log.debug(f"[DL-{site_type}] 网络错误，重试 {network_failures}/{max_network_retries}: {e}")
+                time.sleep(get_delay() * 2)
+                ocr_attempts -= 1
+                continue
 
-    return None
+            except Exception as e:
+                fail_stats['exception'] += 1
+                _log.info(f"[DL-{site_type}] 验证码下载尝试 {ocr_attempts}/{max_ocr_retries} 异常: {e}")
+                time.sleep(get_delay())
+
+        _log.warning(f"[DL-{site_type}] 下载失败：OCR重试耗尽 ({ocr_attempts}/{max_ocr_retries}) "
+                     f"统计: {fail_stats}")
+        return None
+    finally:
+        # 仅关闭外部传入的独立 client；共享 client 由 close_captcha_clients 统一管理
+        if own_client:
+            try:
+                client.close()
+            except Exception:
+                pass
 
 
 # ==================== 国标 (GB) 下载 - openstd.samr.gov.cn 新流程 ====================
@@ -144,11 +175,13 @@ def _gb_pdf_getter(client, hcno):
     ct = resp.headers.get('content-type', '')
     if 'pdf' in ct.lower() or (resp.content[:5] == b'%PDF-'):
         return resp.content
-    _log.debug(f"[GB-DL] viewGb 返回非 PDF (ct={ct}, len={len(resp.content)})")
+    # 提高到 info 级别：验证码已通过但 PDF 拿不到，是诊断 GB 下载失败的关键信号
+    body_preview = resp.content[:120]
+    _log.info(f"[GB-DL] viewGb 返回非 PDF (ct={ct}, len={len(resp.content)}, body={body_preview!r})")
     return None
 
 
-def download_with_captcha(hcno):
+def download_with_captcha(hcno, client=None):
     """通过验证码下载国标 PDF（适配 openstd.samr.gov.cn 新接口）
 
     流程：
@@ -156,10 +189,14 @@ def download_with_captcha(hcno):
     2. gc?_t=xxx  (获取验证码图片)
     3. verifyCode  (POST 验证)
     4. viewGb?hcno=xxx  (下载 PDF)
+
+    Args:
+        hcno: 标准 hcno 标识
+        client: 可选，外部传入的独立 httpx.Client（并发场景使用，调用方负责关闭）
     """
     return _unified_captcha_download({
         'site_type': 'gb',
-        'captcha_getter': lambda client: _gb_captcha_getter(client, hcno),
+        'captcha_getter': lambda c: _gb_captcha_getter(c, hcno),
         'captcha_verifier': _gb_captcha_verifier,
-        'pdf_getter': lambda client: _gb_pdf_getter(client, hcno),
-    })
+        'pdf_getter': lambda c: _gb_pdf_getter(c, hcno),
+    }, client=client)

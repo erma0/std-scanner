@@ -14,8 +14,12 @@ def fetch_db_list(province='', key='', status=None, page=1, size=100):
     """调用地方标准列表 API
 
     DB status 为单选（不同于 HB 的多选），参数格式为 status=现行 而非 status[]=现行
-    DB 状态选项: 全部/现行/有更新版/废止（无"即将实施"）
+    DB 网站支持的状态: 现行/废止/''(全部)。
+    '即将实施' 在 DB 网站不支持（DB 新标准发布即生效，无预告期），回退到 '现行'。
     """
+    # DB 网站不支持 '即将实施'，回退到 '现行'
+    if status == '即将实施':
+        status = '现行'
     params = {
         'current': page, 'size': size, 'key': key,
         'ministry': '', 'industry': province,

@@ -6,32 +6,34 @@ import os
 import sys
 import time
 import logging
-import re
 from pathlib import Path
 
 from version import VERSION, APP_NAME
 from config.paths import BASE_DIR, DATA_FILE
 from config.settings import (
     OUTPUT_DIR, REPORT_FILE, DETAIL_URL, OPENSTD,
-    DELAY,
+    get_delay,
     http_client, HB_CODE_MAP, HB_SAFETY_CODES,
 )
 from app.helpers import atomic_write
 from app.keywords import load_keywords, clean_name
 from app.dedup import get_existing_files, add_to_existing_files_cache
 
-from app.scanner.gb_scan import scan_pages, extract_hcno, download_phase, fetch_api_page, _RE_XZ_BTN, _RE_CK_BTN
-from app.scanner.hb_scan import scan_hb_standards, download_hb_standards, download_hb_with_captcha
+from app.scanner.gb_scan import scan_pages, extract_hcno, download_phase, fetch_api_page
+from app.scanner.hb_scan import scan_hb_standards, download_hb_standards, download_hb_with_captcha, CopyrightError
 from app.scanner.db_scan import scan_db_standards, download_db_standards
 from app.scanner.download import download_with_captcha
 from app.scanner.preview import launch_browser, preview_to_pdf
 from app.scanner.search import fetch_stdpage_search, check_downloadable, check_hb_downloadable, get_detail_url_by_tid
 from app.scanner.utils import make_filename
 from app.scanner.progress import save_progress
+from app.scanner.download_helpers import (
+    detect_download_buttons, extract_hcno_from_html, fetch_and_save_pdf,
+)
 
 _log = logging.getLogger('std_scraper')
 
-_cli_delay = DELAY
+_cli_delay = float(get_delay())
 _cli_output_dir = OUTPUT_DIR
 
 
@@ -60,11 +62,10 @@ async def quick_download(query):
         resp = await asyncio.get_running_loop().run_in_executor(
             None, lambda: http_client.get(f"{DETAIL_URL}?id={std_id}"))
         resp.raise_for_status()
-        m = re.search(r'newGbInfo\?hcno=([A-Fa-f0-9]+)', resp.text)
-        if not m:
+        hcno = extract_hcno_from_html(resp.text)
+        if not hcno:
             _log.warning("[ERROR] 未找到 hcno")
             return
-        hcno = m.group(1)
     except Exception as e:
         _log.error(f"[ERROR] hcno 提取失败: {e}")
         return
@@ -86,24 +87,19 @@ async def quick_download(query):
         resp = await asyncio.get_running_loop().run_in_executor(
             None, lambda: http_client.get(detail_url))
         resp.raise_for_status()
-        html = resp.text
-        has_download = bool(_RE_XZ_BTN.search(html))
-        has_preview = bool(_RE_CK_BTN.search(html))
-        copyright = '涉及版权保护' in html or '不提供在线阅读' in html or ('ISO、IEC' in html and '版权保护' in html)
-        can_dl = has_download and not copyright
-        can_preview = has_preview and not copyright
+        btns = detect_download_buttons(resp.text)
 
-        if can_dl:
+        if btns.can_download:
             _log.info("[DOWN] 下载中...")
             loop = asyncio.get_running_loop()
-            pdf_data = await loop.run_in_executor(None, download_with_captcha, hcno)
+            pdf_data = await loop.run_in_executor(
+                None, fetch_and_save_pdf,
+                lambda: download_with_captcha(hcno), filepath, filename, out_dir)
             if pdf_data:
-                atomic_write(str(filepath), pdf_data, dir_=str(out_dir))
                 _log.info(f"[OK] {filepath} ({len(pdf_data)/1024:.0f}KB)")
-                add_to_existing_files_cache(filename)
             else:
                 _log.warning("[FAIL] 验证码下载失败")
-        elif can_preview:
+        elif btns.can_preview:
             from app.scanner.preview import PLAYWRIGHT_AVAILABLE
             from config.manager import load_config
             if not (load_config().get('download', {}).get('allow_preview', True) and PLAYWRIGHT_AVAILABLE):
@@ -125,7 +121,7 @@ async def quick_download(query):
                         except Exception as e:
                             _log.debug(f"Playwright 关闭异常: {e}")
         else:
-            _log.info("[NOBTN] 无下载/预览按钮" + ("(版权受限)" if copyright else ""))
+            _log.info("[NOBTN] 无下载/预览按钮" + ("(版权受限)" if btns.copyright else ""))
     except Exception as e:
         _log.error(f"[ERROR] {e}")
 
@@ -199,28 +195,33 @@ async def quick_download_web(query, std_type='国家标准', max_results=5):
                 std_name = '行业标准' if site_type == 'hb' else '地方标准'
 
                 _log.info(f"   [DOWN] 下载中（{std_name}）...")
-                pdf_data = await asyncio.get_running_loop().run_in_executor(
-                    None, download_hb_with_captcha, hb_hash, site_type
-                )
+                filepath = out_dir / filename
+                try:
+                    pdf_data = await asyncio.get_running_loop().run_in_executor(
+                        None, fetch_and_save_pdf,
+                        lambda: download_hb_with_captcha(hb_hash, site_type),
+                        filepath, filename, out_dir,
+                    )
+                except CopyrightError as ce:
+                    _log.info(f"   [COPY] 版权限制: {ce}")
+                    continue
                 if pdf_data:
-                    filepath = out_dir / filename
-                    atomic_write(str(filepath), pdf_data, dir_=str(out_dir))
                     _log.info(f"   [OK] {filepath} ({len(pdf_data)/1024:.0f}KB)")
-                    add_to_existing_files_cache(filename)
                 else:
-                    _log.warning("   [FAIL] 验证码下载失败")
+                    _log.warning("   [FAIL] 下载失败")
+                    await asyncio.sleep(_cli_delay)
             except Exception as e:
                 _log.error(f"   [ERROR] {e}")
+                await asyncio.sleep(_cli_delay)
         else:
             try:
                 loop = asyncio.get_running_loop()
                 resp = await loop.run_in_executor(None, lambda: http_client.get(detail_url))
                 resp.raise_for_status()
-                m = re.search(r'newGbInfo\?hcno=([A-Fa-f0-9]+)', resp.text)
-                if not m:
+                hcno = extract_hcno_from_html(resp.text)
+                if not hcno:
                     _log.warning("   [WARN] 未找到 hcno，跳过")
                     continue
-                hcno = m.group(1)
             except Exception as e:
                 _log.error(f"   [ERROR] 获取详情页失败: {e}")
                 continue
@@ -232,25 +233,21 @@ async def quick_download_web(query, std_type='国家标准', max_results=5):
                 resp2 = await asyncio.get_running_loop().run_in_executor(
                     None, lambda: http_client.get(detail_url2))
                 resp2.raise_for_status()
-                html = resp2.text
-                has_download = bool(_RE_XZ_BTN.search(html))
-                has_preview = bool(_RE_CK_BTN.search(html))
-                copyright = '涉及版权保护' in html or '不提供在线阅读' in html or ('ISO、IEC' in html and '版权保护' in html)
-                can_dl = has_download and not copyright
-                can_preview = has_preview and not copyright
+                btns = detect_download_buttons(resp2.text)
 
-                if can_dl:
+                if btns.can_download:
                     _log.info("   [DOWN] 下载中...")
                     pdf_data = await asyncio.get_running_loop().run_in_executor(
-                        None, download_with_captcha, hcno)
+                        None, fetch_and_save_pdf,
+                        lambda: download_with_captcha(hcno),
+                        filepath, filename, out_dir)
                     if pdf_data:
-                        atomic_write(str(filepath), pdf_data, dir_=str(out_dir))
                         _log.info(f"   [OK] {filepath} ({len(pdf_data)/1024:.0f}KB)")
-                        add_to_existing_files_cache(filename)
                     else:
-                        _log.warning("   [FAIL] 验证码下载失败")
+                        _log.warning("   [FAIL] 下载失败")
+                        await asyncio.sleep(_cli_delay)
 
-                elif can_preview:
+                elif btns.can_preview:
                     from app.scanner.preview import PLAYWRIGHT_AVAILABLE
                     from config.manager import load_config
                     if not (load_config().get('download', {}).get('allow_preview', True) and PLAYWRIGHT_AVAILABLE):
@@ -265,14 +262,14 @@ async def quick_download_web(query, std_type='国家标准', max_results=5):
                             add_to_existing_files_cache(filename)
                         else:
                             _log.warning("   [FAIL] 预览失败")
+                            await asyncio.sleep(_cli_delay)
 
                 else:
-                    _log.info("   [NOBTN] 无下载/预览按钮" + ("(版权受限)" if copyright else ""))
+                    _log.info("   [NOBTN] 无下载/预览按钮" + ("(版权受限)" if btns.copyright else ""))
 
             except Exception as e:
                 _log.error(f"   [ERROR] {e}")
-
-        await asyncio.sleep(_cli_delay)
+                await asyncio.sleep(_cli_delay)
 
     if playwright_mgr:
         try:
@@ -379,7 +376,7 @@ async def main():
     scan_db_arg = next((a for a in args if a.startswith('--scan-db')), None)
     keywords_path = next((a.split('=', 1)[1] for a in args if a.startswith('--keywords=')), None)
 
-    _cli_delay = float(next((a.split('=')[1] for a in args if a.startswith('--delay=')), str(DELAY)))
+    _cli_delay = float(next((a.split('=')[1] for a in args if a.startswith('--delay=')), str(get_delay())))
 
     output_dir_override = next((a.split('=', 1)[1] for a in args if a.startswith('--output-dir=')), None)
     if output_dir_override:
