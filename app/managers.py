@@ -4,7 +4,6 @@
 """
 import time
 import threading
-import asyncio
 from typing import Optional, Dict, List
 
 from config.manager import load_config, save_config
@@ -36,8 +35,14 @@ class TaskManager:
     def get_all(self, status_filter: Optional[str] = None) -> List[Dict]:
         with self._lock:
             if status_filter:
-                return [dict(t) for t in self._tasks.values() if t.get('status') == status_filter]
-            return [dict(t) for t in self._tasks.values()]
+                items = [dict(t) for t in self._tasks.values() if t.get('status') == status_filter]
+            else:
+                items = [dict(t) for t in self._tasks.values()]
+        # 按创建时间倒序：新任务排在最前。
+        # 优先用 created_at（SQLite 持久化字段），缺失时回退到 start_time
+        # （新建任务尚未重新加载自 DB 时只有 start_time）。
+        items.sort(key=lambda t: t.get('created_at') or t.get('start_time') or 0, reverse=True)
+        return items
 
     def create(self, task_id: str, task_data: Dict) -> Dict:
         with self._lock:
@@ -50,11 +55,24 @@ class TaskManager:
         if 'std_items' in task_snapshot and isinstance(task_snapshot['std_items'], list):
             task_snapshot['std_items_count'] = len(task_snapshot['std_items'])
             task_snapshot['std_items'] = None
+        # 动态注入 duration 字段，避免前端依赖 Date.now() 重算（暂停状态下不计入新增时长）
+        start_time = task_snapshot.get('start_time')
+        if start_time:
+            end_time = task_snapshot.get('end_time')
+            if end_time is None and task_snapshot.get('status') == 'running':
+                end_time = time.time()
+            if end_time:
+                paused_dur = task_snapshot.get('paused_duration', 0) or 0
+                if task_snapshot.get('status') == 'paused':
+                    paused_at = task_snapshot.get('paused_at')
+                    if paused_at:
+                        paused_dur += max(0, time.time() - paused_at)
+                task_snapshot['duration'] = max(0, end_time - start_time - paused_dur)
         try:
             from app.routes.sse import sse_broadcast
             sse_broadcast("task_update", task_snapshot)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"SSE 广播失败（不影响主流程）: {e}")
 
     def update(self, task_id: str, status: str = None, progress: int = None,
                message: str = None, stats: Dict = None, persist_std_items: bool = True,
@@ -90,6 +108,12 @@ class TaskManager:
         return True
 
     def delete(self, task_id: str) -> bool:
+        """删除任务。
+
+        直接从内存和 SQLite 删除。后台扫描/下载线程在下个 _check_pause 检查点
+        会检测到 task 不存在（task_manager.get 返回 None）并自动退出，安全无副作用。
+        下载中的 HTTP 请求会继续完成（PDF 文件仍写入磁盘），但 stats 无法更新（task 已删除）。
+        """
         with self._lock:
             if task_id not in self._tasks:
                 return False
@@ -117,11 +141,6 @@ class TaskManager:
     def is_paused(self, task_id: str) -> bool:
         with self._lock:
             return self._tasks.get(task_id, {}).get('status') == 'paused'
-
-    async def wait_if_paused(self, task_id: str):
-        """如果任务被暂停，等待直到恢复"""
-        while self.is_paused(task_id):
-            await asyncio.sleep(0.5)
 
     def pause(self, task_id: str) -> bool:
         with self._lock:
@@ -223,14 +242,17 @@ class TaskManager:
             for k, v in self._tasks.items():
                 status = v.get('status')
                 if status in ('completed', 'failed', 'interrupted'):
-                    end_time = v.get('end_time', 0)
-                    if end_time and end_time < cutoff:
+                    # 优先用 end_time；interrupted 任务异常退出时可能无 end_time，
+                    # 回退到 start_time；都没有则用 0（会被时间条件过滤掉）
+                    t = v.get('end_time') or v.get('start_time') or 0
+                    if t and t < cutoff:
                         keys_to_remove.append(k)
 
             total = len(self._tasks)
             overflow = total - max_tasks
             if overflow > 0:
-                completed = [(k, v.get('end_time', 0)) for k, v in self._tasks.items()
+                completed = [(k, v.get('end_time') or v.get('start_time') or 0)
+                             for k, v in self._tasks.items()
                            if v.get('status') in ('completed', 'failed', 'interrupted')
                            and k not in keys_to_remove]
                 completed.sort(key=lambda x: x[1])
@@ -252,17 +274,24 @@ class TaskManager:
 
         程序异常退出后，running/paused 状态的任务无法继续执行，
         标记为 interrupted 后用户可在前端手动重试。
+        同时补上 end_time（用程序启动时刻），确保 cleanup_completed 能按时间清理。
         """
+        now = time.time()
         with self._lock:
             interrupted = []
             for k, v in self._tasks.items():
                 if v.get('status') in ('running', 'paused'):
                     v['status'] = 'interrupted'
                     v['message'] = '程序异常退出，任务中断'
+                    if not v.get('end_time'):
+                        v['end_time'] = now
                     self._persist_locked(k)
                     interrupted.append(k)
             if interrupted:
-                logger.info(f"已标记 {len(interrupted)} 个中断任务")
+                logger.warning(
+                    f"检测到 {len(interrupted)} 个上次未完成的任务已标记为中断: {interrupted}。"
+                    f"用户可在任务列表手动重试。"
+                )
             return interrupted
 
     def save_all(self):
@@ -400,8 +429,8 @@ class SchedulerManager:
             if self._scheduler:
                 try:
                     self._scheduler.remove_job(job_id)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"移除定时任务调度失败 {job_id}: {e}")
             del self._jobs[job_id]
             self._mark_dirty_locked()
         return True
@@ -426,8 +455,8 @@ class SchedulerManager:
                 try:
                     for job in self._scheduler.get_jobs():
                         result[job.id] = job.next_run_time.isoformat() if job.next_run_time else None
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"获取下次运行时间失败: {e}")
             return result
 
     def toggle_job(self, job_id: str, enabled: bool, run_fn=None) -> bool:
@@ -449,8 +478,8 @@ class SchedulerManager:
             elif not enabled and self._scheduler:
                 try:
                     self._scheduler.remove_job(job_id)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"禁用定时任务调度失败 {job_id}: {e}")
             self._mark_dirty_locked()
         return True
 
