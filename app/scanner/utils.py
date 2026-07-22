@@ -71,8 +71,8 @@ def compute_download_stats(standards):
     }
 
 
-def make_filename(code, name):
-    """生成文件名: code + name + .pdf
+def make_filename(code, name, suffix='.pdf'):
+    """生成文件名: code + name + suffix
 
     内部使用 safe_filename 清理非法字符，并限制总长度以适应
     Windows 260 字符路径限制。
@@ -81,7 +81,6 @@ def make_filename(code, name):
     n = name.strip()
 
     max_code_name = 160
-    suffix = '.pdf'
     total = len(c) + len(n)
     if total > max_code_name:
         available = max_code_name - len(c) - 1

@@ -96,6 +96,9 @@ def get_detail_url_by_tid(tid, pid):
         return f"https://std.samr.gov.cn/db/search/stdDBDetailed?id={pid}", tid
     elif tid == 'BV_GB_PLAN':
         return f"https://std.samr.gov.cn/gb/search/stdPlanDetailed?id={pid}", tid
+    elif tid == 'BV_TT':
+        # 团体标准详情页（ttbz.org.cn）
+        return f"https://www.ttbz.org.cn/StandardManage/Detail/{pid}/", tid
     else:
         return f"https://std.samr.gov.cn/gb/search/gbDetailed?id={pid}", tid
 
@@ -108,6 +111,8 @@ def check_downloadable(tid):
         return True, '行业标准，可下载'
     elif tid == 'BV_DB':
         return True, '地方标准，可下载'
+    elif tid == 'BV_TT':
+        return True, '团体标准，可下载'
     elif tid == 'BV_GB_PLAN':
         return False, '国家标准计划，仅计划信息，无PDF'
     else:

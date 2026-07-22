@@ -87,6 +87,22 @@ SEARCH_MAIN = "https://std.samr.gov.cn/search/std"
 HB_API_URL = "https://hbba.sacinfo.org.cn/stdQueryList"
 DB_API_URL = "https://dbba.sacinfo.org.cn/stdQueryList"
 
+# 团体标准（全国团体标准信息平台 https://www.ttbz.org.cn）
+# 关键发现：从 /standard.html 入口访问 cms-proxy 接口完全无 WAF，可用 httpx 直接调用
+TT_BASE = "https://www.ttbz.org.cn"
+TT_LIST_URL = f"{TT_BASE}/standard.html"          # 无 WAF 入口页（Vue SPA，仅供 Referer 使用）
+TT_DETAIL_URL = f"{TT_BASE}/StandardManage/Detail"  # 详情页（前端路由，仅供 Referer 使用）
+# 真实 API 端点（POST application/x-www-form-urlencoded，无 WAF）
+TT_API_LIST = f"{TT_BASE}/cms-proxy/ms/portal/standardInfo/getPortalStandardList"
+TT_API_DETAIL = f"{TT_BASE}/cms-proxy/ms/portal/standardInfo/getPortalStandardById"
+
+# 应急管理部标准（https://www.mem.gov.cn/fw/flfgbz/bz/bzwb/）
+# HTML 静态渲染页面，无 WAF，可用 httpx 直接抓取
+MEM_BASE = "https://www.mem.gov.cn"
+MEM_LIST_URL = f"{MEM_BASE}/fw/flfgbz/bz/bzwb/"  # 标准文本列表页（默认源 bz）
+# 应急管理部规章：列表页通过 iframe 嵌入此 URL（gz11 栏目）
+MEM_GZ_LIST_URL = f"{MEM_BASE}/gk/zfxxgkpt/fdzdgknr/gz11/index.shtml"
+
 # ==================== 分页/间隔 ====================
 PAGE_SIZE = 50
 
@@ -138,18 +154,10 @@ _HTTP_HEADERS = {
 # ==================== 主 HTTP 客户端（连接池复用 + 自动重连）====================
 # httpx.Transport 的 retries 参数控制连接级重试：
 # 当 keepalive 连接被服务端关闭时，自动重建连接重试，避免 RemoteProtocolError
-try:
-    _transport = httpx.HTTPTransport(retries=3)
-    http_client = httpx.Client(
-        transport=_transport,
-        headers=_HTTP_HEADERS,
-        timeout=_HTTP_TIMEOUT,
-        follow_redirects=True,
-        limits=_HTTP_LIMITS,
-        http2=True,
-    )
-except Exception as e:
-    print(f"[WARN] httpx http2 初始化失败，降级到 http1.1: {e}")
+import importlib.util as _importlib_util
+_has_h2 = _importlib_util.find_spec('h2') is not None
+
+if _has_h2:
     try:
         _transport = httpx.HTTPTransport(retries=3)
         http_client = httpx.Client(
@@ -158,15 +166,28 @@ except Exception as e:
             timeout=_HTTP_TIMEOUT,
             follow_redirects=True,
             limits=_HTTP_LIMITS,
+            http2=True,
         )
-    except Exception as e2:
-        print(f"[WARN] httpx HTTPTransport 初始化失败，使用默认 transport: {e2}")
+    except Exception as e:
+        print(f"[WARN] httpx http2 初始化失败，降级到 http1.1: {e}")
+        _transport = httpx.HTTPTransport(retries=3)
         http_client = httpx.Client(
+            transport=_transport,
             headers=_HTTP_HEADERS,
             timeout=_HTTP_TIMEOUT,
             follow_redirects=True,
             limits=_HTTP_LIMITS,
         )
+else:
+    # h2 包未安装，直接用 http1.1，跳过 http2=True 失败的异常开销（省约 0.1s）
+    _transport = httpx.HTTPTransport(retries=3)
+    http_client = httpx.Client(
+        transport=_transport,
+        headers=_HTTP_HEADERS,
+        timeout=_HTTP_TIMEOUT,
+        follow_redirects=True,
+        limits=_HTTP_LIMITS,
+    )
 
 # ==================== 验证码下载客户端（持久化连接 + Cookie 隔离）====================
 _captcha_clients: dict[str, httpx.Client] = {}

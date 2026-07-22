@@ -12,7 +12,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.scanner_engine import run_scan_pipeline
+# app.scanner_engine 导入耗时长（~0.7s，含 GB/HB/DB/TT 扫描器），延迟到 run_scheduled_scan 内
 from config.manager import load_config
 # 注意：不直接 from .state import _main_loop / ns —— 那会在 import 时按值快照为 None，
 # 而 state._main_loop / state.ns 在 lifespan 中才被赋值/热重载时会被重新赋值。
@@ -33,37 +33,61 @@ async def _do_scheduled_scan_impl(scan_type, max_results, keyword_group, job_cfg
     v3.6.4: all 类型改为三个独立并发任务，支持独立暂停/恢复。
     支持暂停检查和 sub_stats 统计。
     """
+    from app.scanner_engine import run_scan_pipeline
     if scan_type == 'all':
         scan_types = job_cfg.get('scan_types', ['gb', 'hb', 'db'])
         hb_cfg = {'industries': job_cfg.get('industries')}
         db_cfg = {'provinces': job_cfg.get('provinces')}
+        tt_cfg = {'cnl1_codes': job_cfg.get('cnl1_codes')}
+        # MEM 数据源：bz 标准文本 | gz 规章 | all 两源并发（默认 bz）
+        mem_src = job_cfg.get('mem_source', 'bz')
+        mem_cfg = {'source': mem_src if mem_src in ('bz', 'gz', 'all') else 'bz'}
 
         from ._utils import create_combined_scan_tasks
         task_ids, scan_fn = create_combined_scan_tasks(
             scan_types=scan_types, max_results=max_results,
             incr=True, keyword_group=keyword_group, scan_only=False,
-            hb_config=hb_cfg, db_config=db_cfg,
+            hb_config=hb_cfg, db_config=db_cfg, tt_config=tt_cfg, mem_config=mem_cfg,
         )
         await scan_fn()
 
-        # 汇总通知
+        # 汇总通知：区分 完成任务 / 空任务（无符合条件标准） / 失败任务
         ok_types = []
+        empty_types = []
         fail_types = []
         for tid in task_ids:
             tk = _task_manager.get(tid)
             if not tk:
                 fail_types.append(f"{tid}:任务丢失")
-            elif tk.get('status') == 'completed':
-                scanned = (tk.get('stats') or {}).get('scanned', 0)
-                label = {'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准'}.get(tk.get('std_type', ''), tk.get('std_type'))
-                ok_types.append(f"{label}:{scanned}条")
-            else:
-                label = {'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准'}.get(tk.get('std_type', ''), tk.get('std_type'))
+                continue
+            label = {'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准', 'mem': '应急管理部标准'}.get(tk.get('std_type', ''), tk.get('std_type'))
+            if tk.get('status') != 'completed':
                 fail_types.append(f"{label}:{tk.get('message', '')[:30]}")
+            elif (tk.get('stats') or {}).get('scanned', 0) == 0 and not tk.get('std_items'):
+                # 扫描结果为空（无符合条件标准）
+                empty_types.append(label)
+            else:
+                scanned = (tk.get('stats') or {}).get('scanned', 0)
+                ok_types.append(f"{label}:{scanned}条")
 
+        # 通知标题与内容
         if fail_types:
             title = "定时扫描完成（部分失败）" if ok_types else "⚠️ 定时扫描全部失败"
-            content = ("成功: " + ", ".join(ok_types) + "\n失败: " + ", ".join(fail_types)) if ok_types else "失败: " + ", ".join(fail_types)
+            parts = []
+            if ok_types:
+                parts.append("成功: " + ", ".join(ok_types))
+            if empty_types:
+                parts.append("无符合条件标准: " + ", ".join(empty_types))
+            parts.append("失败: " + ", ".join(fail_types))
+            content = "\n".join(parts)
+        elif empty_types and not ok_types:
+            # 全部为空
+            title = "定时扫描完成（无符合条件标准）"
+            content = "无符合条件标准: " + ", ".join(empty_types)
+        elif empty_types:
+            # 部分为空，部分成功
+            title = "定时扫描完成（部分无符合条件标准）"
+            content = "成功: " + ", ".join(ok_types) + "\n无符合条件标准: " + ", ".join(empty_types)
         else:
             title = "定时扫描完成"
             content = ", ".join(ok_types)
@@ -82,7 +106,12 @@ async def _do_scheduled_scan_impl(scan_type, max_results, keyword_group, job_cfg
             'keyword_group': keyword_group,
             'industries': job_cfg.get('industries'),
             'provinces': job_cfg.get('provinces'),
+            'cnl1_codes': job_cfg.get('cnl1_codes'),
         }
+        # MEM 数据源：bz 标准文本 | gz 规章 | all 两源并发（默认 bz）
+        if scan_type == 'mem':
+            mem_src = job_cfg.get('mem_source', 'bz')
+            config['source'] = mem_src if mem_src in ('bz', 'gz', 'all') else 'bz'
         standards = await run_scan_pipeline(scan_type, config,
                                             task_id=task_id, task_manager=_task_manager)
         _log.info(f"定时{scan_type.upper()}扫描完成: {len(standards)} 条")

@@ -74,7 +74,7 @@ verify_import("config.manager", ["load_config", "save_config", "DEFAULT_CONFIG",
 
 # 语法验证（耗时模块用语法检查代替导入）
 verify_import("app.scanner", ["scan_pages", "download_with_captcha", "download_hb_with_captcha", "make_filename", "compare_snapshot"])
-for sub in ["preview", "utils", "checkpoint", "progress", "download", "gb_scan", "search", "hb_scan", "db_scan", "quick", "change_tracker"]:
+for sub in ["preview", "utils", "checkpoint", "progress", "download", "gb_scan", "search", "hb_scan", "db_scan", "tt_scan", "mem_scan", "quick", "change_tracker"]:
     verify_syntax(f"app/scanner/{sub}.py")
 verify_syntax("app/scanner_engine.py")
 verify_syntax("app/server.py")

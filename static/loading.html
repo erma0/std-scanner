@@ -103,7 +103,7 @@
 
     <script>
     (function poll() {
-        fetch('http://127.0.0.1:8000/api/health')
+        fetch('http://127.0.0.1:8000/api/ready')
             .then(function(r) {
                 if (r.ok) {
                     document.querySelector('.app-subtitle').textContent = '服务就绪，正在进入...';

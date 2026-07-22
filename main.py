@@ -14,6 +14,9 @@ from pathlib import Path
 # 添加当前目录到路径
 sys.path.insert(0, str(Path(__file__).parent))
 
+# 顶层导入：主线程同步加载完成，确保 webview.start() 后窗口立即显示 loading 页
+# （app.server 的重模块已做懒加载：scanner/__init__.py 延迟导出、TaskManager 用 _LazyProxy，
+#  路由内 scanner/dedup/captcha 均延迟导入，import app.server 约 0.7s）
 import app.server as api_module
 
 try:
@@ -56,7 +59,8 @@ class Api:
 def wait_for_api(max_retries=30, interval=0.5):
     for i in range(max_retries):
         try:
-            resp = httpx.get(f'http://{_SERVER_HOST}:{_SERVER_PORT}/api/health', timeout=1.0)
+            # 使用 /api/ready 轻量端点：不做 DB 查询，避免与 lifespan 后台任务的 SQLite 写入竞争
+            resp = httpx.get(f'http://{_SERVER_HOST}:{_SERVER_PORT}/api/ready', timeout=1.0)
             if resp.status_code == 200:
                 print(f"[INFO] API服务已就绪 (等待{i * interval:.1f}秒)")
                 return True
@@ -69,8 +73,12 @@ def wait_for_api(max_retries=30, interval=0.5):
 
 
 def start_api_server():
-    """启动FastAPI服务（使用 uvicorn.Server 以支持外部关闭）"""
+    """启动FastAPI服务（使用 uvicorn.Server 以支持外部关闭）
+
+    端口清理放在此处而非 main() 开头：与窗口创建并行，避免阻塞 loading 页显示。
+    """
     global api_server
+    _kill_port_occupant()
     config = uvicorn.Config(
         "app.server:app",
         host=_SERVER_HOST,
@@ -149,9 +157,30 @@ def on_window_closed():
             print(f"[WARN] 隐藏窗口失败: {e}")
 
 
+def _is_port_in_use(port: int) -> bool:
+    """毫秒级检测端口是否被占用（比 netstat 快 100 倍以上）"""
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(0.1)
+    try:
+        # bind 到端口：成功说明端口空闲，失败说明被占用
+        s.bind(('127.0.0.1', port))
+        return False
+    except OSError:
+        return True
+    finally:
+        s.close()
+
+
 def _kill_port_occupant():
-    """检测并杀掉占用端口的旧进程（保守策略：只杀同名 python 进程）"""
+    """检测并杀掉占用端口的旧进程（保守策略：只杀本项目特征进程）
+
+    优化：先用 socket 毫秒级检测端口，未占用直接返回，避免 netstat 全量扫描。
+    """
     import subprocess
+    # 快速路径：socket 检测端口未占用，跳过昂贵的 netstat + wmic 调用
+    if not _is_port_in_use(_SERVER_PORT):
+        return False
     try:
         result = subprocess.run(
             ['netstat', '-ano'], capture_output=True, text=True, timeout=5
@@ -191,9 +220,6 @@ def _kill_port_occupant():
 def main():
     global webview_window
 
-    # 启动前检测端口占用
-    _kill_port_occupant()
-
     def _signal_handler(sig, frame):
         _shutdown()
 
@@ -202,7 +228,7 @@ def main():
 
     # === 并行启动：API 后台线程 + 窗口即刻显示 loading 页 ===
 
-    # 1. 后台启动 API 服务
+    # 1. 后台启动 API 服务（端口清理在 start_api_server 内部，与窗口创建并行）
     print("[INFO] 启动API服务...")
     api_thread = threading.Thread(target=start_api_server, daemon=True)
     api_thread.start()

@@ -315,50 +315,53 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                             <option value="国家标准">国家标准</option>
                                             <option value="行业标准">行业标准</option>
                                             <option value="地方标准">地方标准</option>
+                                            <option value="团体标准">团体标准</option>
                                             <option value="国家标准计划">国家标准计划</option>
                                         </select>
                                     </div>
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">最大结果数</label>
-                                        <input type="number" id="search-max" value="20" min="1" max="50" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm">
+                                        <input type="number" id="search-max" value="10" min="1" max="50" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm">
                                     </div>
                                 </div>
-                                <button id="search-btn" class="w-full primary-btn text-white font-medium py-2.5 px-4 rounded-lg text-sm flex items-center justify-center">
-                                    <i class="fa fa-search mr-2"></i>搜索
-                                </button>
+                                <div class="flex gap-2">
+                                    <button id="search-batch-btn" class="flex-1 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 font-medium py-2.5 px-4 rounded-lg text-sm flex items-center justify-center transition-colors">
+                                        <i class="fa fa-list mr-2"></i>批量搜索下载
+                                    </button>
+                                    <button id="search-btn" class="flex-1 primary-btn text-white font-medium py-2.5 px-4 rounded-lg text-sm flex items-center justify-center">
+                                        <i class="fa fa-search mr-2"></i>搜索
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
                         <div id="search-results-panel" class="hidden mt-4">
                             <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+                                <!-- 顶部操作栏 -->
                                 <div class="px-6 pt-4 pb-3 border-b border-gray-100">
-                                    <div class="flex items-center justify-between">
+                                    <div class="flex items-center justify-between mb-3">
                                         <h3 class="font-medium text-gray-800 text-sm flex items-center">
                                             <i class="fa fa-list mr-2 text-blue-500"></i>
                                             搜索结果 <span id="search-result-count" class="ml-2 text-xs text-gray-400"></span>
                                         </h3>
-                                        <div class="flex items-center space-x-2">
-                                            <label class="flex items-center cursor-pointer text-xs text-gray-500 hover:text-gray-700">
-                                                <input type="checkbox" id="search-select-all" class="w-3.5 h-3.5 text-blue-500 rounded mr-1.5">
-                                                全选
-                                            </label>
-                                        </div>
+                                        <label class="flex items-center cursor-pointer text-xs text-gray-500 hover:text-gray-700">
+                                            <input type="checkbox" id="search-select-all" class="w-3.5 h-3.5 text-blue-500 rounded mr-1.5">
+                                            全选
+                                        </label>
                                     </div>
-                                </div>
-                                <div id="search-results-list" class="divide-y divide-gray-50 max-h-[420px] overflow-y-auto">
-                                </div>
-                                <div class="px-6 py-3 border-t border-gray-100 bg-gray-50 rounded-b-xl">
                                     <div class="flex items-center justify-between">
-                                        <span id="search-selected-count" class="text-xs text-gray-500">已选 0 项</span>
+                                        <span id="search-selected-count-top" class="text-xs text-gray-500">已选 0 项</span>
                                         <div class="flex space-x-2">
-                                            <button id="search-download-selected-btn" disabled class="px-4 py-1.5 primary-btn text-white text-xs rounded-lg flex items-center disabled:opacity-50 disabled:cursor-not-allowed">
+                                            <button id="search-download-selected-btn-top" disabled class="px-4 py-1.5 primary-btn text-white text-xs rounded-lg flex items-center disabled:opacity-50 disabled:cursor-not-allowed">
                                                 <i class="fa fa-download mr-1.5"></i>下载选中
                                             </button>
-                                            <button id="search-download-all-btn" class="px-4 py-1.5 success-btn text-white text-xs rounded-lg flex items-center">
+                                            <button id="search-download-all-btn-top" class="px-4 py-1.5 success-btn text-white text-xs rounded-lg flex items-center">
                                                 <i class="fa fa-download mr-1.5"></i>全部下载
                                             </button>
                                         </div>
                                     </div>
+                                </div>
+                                <div id="search-results-list" class="divide-y divide-gray-50 overflow-y-auto" style="max-height: calc(100vh - 460px);">
                                 </div>
                             </div>
                         </div>
@@ -441,6 +444,12 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                     </button>
                                     <button class="scan-tab" data-scan-type="db">
                                         <i class="fa fa-map-marker mr-1.5 text-green-500"></i>地方标准
+                                    </button>
+                                    <button class="scan-tab" data-scan-type="tt">
+                                        <i class="fa fa-users mr-1.5 text-purple-500"></i>团体标准
+                                    </button>
+                                    <button class="scan-tab" data-scan-type="mem">
+                                        <i class="fa fa-shield mr-1.5 text-amber-600"></i>应急管理部
                                     </button>
                                     <button class="scan-tab active" data-scan-type="all">
                                         <i class="fa fa-refresh mr-1.5"></i>联合扫描
@@ -538,6 +547,68 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                     </div>
                                 </div>
 
+                                <div id="scan-tt-panel" class="scan-panel hidden">
+                                    <div class="space-y-4">
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">选择分类（可多选）</label>
+                                            <div class="flex flex-wrap gap-1.5" id="tt-cnl-tags"></div>
+                                            <div class="mt-2 flex space-x-2">
+                                                <button id="tt-select-all" class="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 transition-colors">选择全部分类</button>
+                                                <button id="tt-clear-all" class="px-3 py-1 text-xs bg-red-100 text-red-700 rounded-full hover:bg-red-200 transition-colors">清空选择</button>
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center gap-3 flex-wrap">
+                                            <label class="text-sm font-medium text-gray-700">采集</label>
+                                            <input type="number" id="tt-pages" value="200" min="1" max="10000" class="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-center">
+                                            <span class="text-sm text-gray-500">条</span>
+                                            <span class="text-gray-300 mx-1">|</span>
+                                            <span class="text-sm text-gray-600">状态</span>
+                                            <select id="tt-state" class="px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                                <option value="现行" selected>现行</option>
+                                                <option value="即将实施">即将实施</option>
+                                                <option value="废止">废止</option>
+                                                <option value="全部">全部</option>
+                                            </select>
+                                            <span class="text-gray-300 mx-1">|</span>
+                                            <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="tt-scan-only" class="w-4 h-4 text-blue-500 rounded mr-1.5">仅扫描</label>
+                                            <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="tt-incr" class="w-4 h-4 text-blue-500 rounded mr-1.5" checked>增量</label>
+                                        </div>
+                                        <button id="tt-scan-btn" class="w-full success-btn text-white font-medium py-2.5 px-4 rounded-lg text-sm flex items-center justify-center">
+                                            <i class="fa fa-play mr-2"></i>开始扫描团体标准
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div id="scan-mem-panel" class="scan-panel hidden">
+                                    <div class="space-y-4">
+                                        <div class="flex items-center gap-3 flex-wrap">
+                                            <label class="text-sm font-medium text-gray-700">栏目</label>
+                                            <select id="mem-source" class="px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                                <option value="bz" selected>标准文本</option>
+                                                <option value="gz">规章</option>
+                                                <option value="all">全部（标准文本+规章）</option>
+                                            </select>
+                                            <span class="text-gray-300 mx-1">|</span>
+                                            <label class="text-sm font-medium text-gray-700">采集</label>
+                                            <input type="number" id="mem-pages" value="500" min="1" max="10000" class="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-center">
+                                            <span class="text-sm text-gray-500">条</span>
+                                            <span class="text-gray-300 mx-1">|</span>
+                                            <span class="text-sm text-gray-600">状态</span>
+                                            <select id="mem-state" class="px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                                <option value="现行" selected>现行</option>
+                                                <option value="废止">废止</option>
+                                                <option value="全部">全部</option>
+                                            </select>
+                                            <span class="text-gray-300 mx-1">|</span>
+                                            <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="mem-scan-only" class="w-4 h-4 text-blue-500 rounded mr-1.5">仅扫描</label>
+                                            <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="mem-incr" class="w-4 h-4 text-blue-500 rounded mr-1.5" checked>增量</label>
+                                        </div>
+                                        <button id="mem-scan-btn" class="w-full success-btn text-white font-medium py-2.5 px-4 rounded-lg text-sm flex items-center justify-center">
+                                            <i class="fa fa-play mr-2"></i>开始扫描应急管理部标准/规章
+                                        </button>
+                                    </div>
+                                </div>
+
                                 <div id="scan-all-panel" class="scan-panel">
                                     <div class="space-y-4">
                                         <div class="warning-box">
@@ -579,11 +650,11 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                                 </div>
                                             </div>
 
-                                                                                        <div class="collapse-card flex items-start p-3 bg-indigo-50 rounded-lg border border-indigo-100">
-                                                <input type="checkbox" id="all-hb-check" checked class="w-4 h-4 text-indigo-500 rounded mt-0.5 flex-shrink-0">
+                                                                                        <div class="collapse-card flex items-start p-3 bg-blue-50 rounded-lg border border-blue-100">
+                                                <input type="checkbox" id="all-hb-check" checked class="w-4 h-4 text-blue-500 rounded mt-0.5 flex-shrink-0">
                                                 <div class="ml-3 flex-1">
                                                     <div class="flex items-center justify-between cursor-pointer" onclick="toggleCollapse('all-hb-body','all-hb-arrow')">
-                                                        <span class="text-sm font-medium text-gray-800"><i class="fa fa-industry mr-1.5 text-indigo-500"></i>行业标准</span>
+                                                        <span class="text-sm font-medium text-gray-800"><i class="fa fa-industry mr-1.5 text-blue-500"></i>行业标准</span>
                                                         <i class="fa fa-chevron-right text-gray-400 text-xs transition-transform" id="all-hb-arrow"></i>
                                                     </div>
                                                     <div class="collapse-body hidden mt-2" id="all-hb-body">
@@ -608,6 +679,44 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                                         <div class="mt-1.5 flex space-x-2">
                                                             <button id="all-db-select-all" class="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 transition-colors" onclick="event.stopPropagation()">全选</button>
                                                             <button id="all-db-clear-all" class="px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded-full hover:bg-red-200 transition-colors" onclick="event.stopPropagation()">清空</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div class="collapse-card flex items-start p-3 bg-purple-50 rounded-lg border border-purple-100">
+                                                <input type="checkbox" id="all-tt-check" class="w-4 h-4 text-purple-500 rounded mt-0.5 flex-shrink-0">
+                                                <div class="ml-3 flex-1">
+                                                    <div class="flex items-center justify-between cursor-pointer" onclick="toggleCollapse('all-tt-body','all-tt-arrow')">
+                                                        <span class="text-sm font-medium text-gray-800"><i class="fa fa-users mr-1.5 text-purple-500"></i>团体标准</span>
+                                                        <i class="fa fa-chevron-right text-gray-400 text-xs transition-transform" id="all-tt-arrow"></i>
+                                                    </div>
+                                                    <div class="collapse-body hidden mt-2" id="all-tt-body">
+                                                        <div class="flex flex-wrap gap-1" id="all-tt-cnl-tags"></div>
+                                                        <div class="mt-1.5 flex space-x-2">
+                                                            <button id="all-tt-select-all" class="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 transition-colors" onclick="event.stopPropagation()">全选</button>
+                                                            <button id="all-tt-clear-all" class="px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded-full hover:bg-red-200 transition-colors" onclick="event.stopPropagation()">清空</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div class="collapse-card flex items-start p-3 bg-amber-50 rounded-lg border border-amber-100">
+                                                <input type="checkbox" id="all-mem-check" class="w-4 h-4 text-amber-600 rounded mt-0.5 flex-shrink-0">
+                                                <div class="ml-3 flex-1">
+                                                    <div class="flex items-center justify-between cursor-pointer" onclick="toggleCollapse('all-mem-body','all-mem-arrow')">
+                                                        <span class="text-sm font-medium text-gray-800"><i class="fa fa-shield mr-1.5 text-amber-600"></i>应急管理部标准</span>
+                                                        <i class="fa fa-chevron-right text-gray-400 text-xs transition-transform" id="all-mem-arrow"></i>
+                                                    </div>
+                                                    <div class="collapse-body hidden mt-2" id="all-mem-body">
+                                                        <div class="flex items-center gap-2 text-xs">
+                                                            <span class="text-gray-600">栏目</span>
+                                                            <select id="all-mem-source" class="px-2 py-1 border border-gray-300 rounded text-xs">
+                                                                <option value="bz" selected>标准文本</option>
+                                                                <option value="gz">规章</option>
+                                                                <option value="all">全部（标准文本+规章）</option>
+                                                            </select>
+                                                            <span class="text-gray-400">·使用上方统一采集条数</span>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -776,10 +885,10 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
                         <!-- 计数行 -->
                         <div class="px-6 py-2 border-b border-gray-100 flex-shrink-0">
-                            <span class="text-xs text-gray-400">匹配 <span id="kw-match-count" class="font-semibold text-blue-600">0</span> · 排除 <span id="kw-exclude-count" class="font-semibold text-red-500">0</span> · 行业 <span id="kw-industry-count" class="font-semibold text-violet-600">0</span> · 省份 <span id="kw-province-count" class="font-semibold text-emerald-600">0</span></span>
+                            <span class="text-xs text-gray-400">匹配 <span id="kw-match-count" class="font-semibold text-blue-600">0</span> · 排除 <span id="kw-exclude-count" class="font-semibold text-red-500">0</span></span>
                         </div>
 
-                        <!-- 四区内容 -->
+                        <!-- 两区内容 -->
                         <div class="flex-1 overflow-y-auto px-6 py-3">
                             <div class="kw-section">
                                 <div class="kw-section-header">
@@ -804,32 +913,6 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                 </div>
                                 <div id="kw-excludes-container" class="kw-container kw-container-exclude">
                                     <span id="kw-excludes-empty" class="text-xs text-gray-400 kw-empty-hint">暂无排除词</span>
-                                </div>
-                            </div>
-
-                            <div class="kw-section">
-                                <div class="kw-section-header">
-                                    <span class="text-sm font-medium text-gray-700"><i class="fa fa-filter text-gray-400 kw-icon-margin"></i>行业筛选</span>
-                                    <div class="kw-section-header-actions">
-                                        <button id="kw-ind-select-all" class="text-xs bg-gray-50 hover:bg-gray-100 text-gray-600 rounded kw-avail-btn">全选</button>
-                                        <button id="kw-ind-clear-all" class="text-xs bg-gray-50 hover:bg-gray-100 text-gray-600 rounded kw-avail-btn">清空</button>
-                                    </div>
-                                </div>
-                                <div id="kw-industries-container" class="kw-container kw-container-filter">
-                                    <span id="kw-industries-empty" class="text-xs text-gray-400 kw-empty-hint">加载中...</span>
-                                </div>
-                            </div>
-
-                            <div class="kw-section">
-                                <div class="kw-section-header">
-                                    <span class="text-sm font-medium text-gray-700"><i class="fa fa-map-marker text-gray-400 kw-icon-margin"></i>省份筛选</span>
-                                    <div class="kw-section-header-actions">
-                                        <button id="kw-prov-select-all" class="text-xs bg-gray-50 hover:bg-gray-100 text-gray-600 rounded kw-avail-btn">全选</button>
-                                        <button id="kw-prov-clear-all" class="text-xs bg-gray-50 hover:bg-gray-100 text-gray-600 rounded kw-avail-btn">清空</button>
-                                    </div>
-                                </div>
-                                <div id="kw-provinces-container" class="kw-container kw-container-filter">
-                                    <span id="kw-provinces-empty" class="text-xs text-gray-400 kw-empty-hint">暂无省份</span>
                                 </div>
                             </div>
                         </div>
@@ -1023,6 +1106,46 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
         </div>
     </div>
 
+    <div id="batch-search-modal" class="fixed inset-0 modal-overlay flex items-center justify-center z-modal-front hidden">
+        <div class="confirm-modal-content bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4">
+            <div class="p-5">
+                <div class="flex items-center mb-3">
+                    <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center mr-3">
+                        <i class="fa fa-list text-blue-500"></i>
+                    </div>
+                    <h3 class="text-base font-semibold text-gray-800">批量搜索下载</h3>
+                </div>
+                <p class="text-xs text-gray-500 mb-2 ml-13">每行一个关键词或标准号（# 开头为注释）。搜索后按 pid/code 去重，自动下载全部命中标准。</p>
+                <textarea id="batch-search-input" rows="8" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 mb-3 font-mono" placeholder="# 每行一个关键词或标准号，例如：&#10;50016&#10;消防&#10;GB 50016&#10;氨制冷"></textarea>
+                <div class="grid grid-cols-2 gap-3 mb-4">
+                    <div>
+                        <label class="block text-xs text-gray-600 mb-1">标准类型</label>
+                        <select id="batch-search-type" class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
+                            <option value="全部">全部</option>
+                            <option value="国家标准">国家标准</option>
+                            <option value="行业标准">行业标准</option>
+                            <option value="地方标准">地方标准</option>
+                            <option value="团体标准">团体标准</option>
+                            <option value="国家标准计划">国家标准计划</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-600 mb-1">每词最大结果</label>
+                        <input type="number" id="batch-search-per-max" value="20" min="1" max="100" class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
+                    </div>
+                </div>
+                <label class="flex items-center text-sm text-gray-700 mb-4 cursor-pointer">
+                    <input type="checkbox" id="batch-search-auto-dl" class="w-4 h-4 text-blue-500 rounded mr-2" checked>
+                    搜索完成后自动下载全部结果
+                </label>
+                <div class="flex space-x-3">
+                    <button id="batch-search-cancel-btn" class="flex-1 bg-gray-100 text-gray-700 font-medium py-2 px-4 rounded-lg hover:bg-gray-200 transition-colors text-sm">取消</button>
+                    <button id="batch-search-ok-btn" class="flex-1 primary-btn text-white font-medium py-2 px-4 rounded-lg text-sm">开始批量搜索</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="schedule-modal" class="fixed inset-0 modal-overlay flex items-center justify-center z-modal hidden">
         <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[85vh] overflow-y-auto">
             <div class="p-5">
@@ -1043,65 +1166,179 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             <option value="gb">国家标准</option>
                             <option value="hb">行业标准</option>
                             <option value="db">地方标准</option>
+                            <option value="tt">团体标准</option>
+                            <option value="mem">应急管理部标准</option>
                             <option value="all">联合扫描</option>
                         </select>
                     </div>
                     <div id="schedule-gb-config">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">采集条数</label>
-                        <input type="number" id="schedule-gb-pages" value="500" min="1" max="10000" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm">
+                        <div class="flex items-center gap-3 flex-wrap">
+                            <label class="text-sm font-medium text-gray-700">采集</label>
+                            <input type="number" id="schedule-gb-pages" value="500" min="1" max="10000" class="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-center">
+                            <span class="text-sm text-gray-500">条</span>
+                        </div>
                     </div>
                     <div id="schedule-hb-config" class="hidden">
-                        <div class="mb-3">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">选择行业（可多选）</label>
-                            <div class="flex flex-wrap gap-1.5" id="schedule-hb-industries"></div>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">采集条数</label>
-                            <input type="number" id="schedule-hb-pages" value="500" min="1" max="10000" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm">
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">选择行业（可多选）</label>
+                                <div class="flex flex-wrap gap-1.5" id="schedule-hb-industries"></div>
+                                <div class="mt-2 flex space-x-2">
+                                    <button type="button" id="schedule-hb-select-safety" class="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition-colors">选择安全相关</button>
+                                    <button type="button" id="schedule-hb-select-all" class="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 transition-colors">选择全部</button>
+                                    <button type="button" id="schedule-hb-clear-all" class="px-3 py-1 text-xs bg-red-100 text-red-700 rounded-full hover:bg-red-200 transition-colors">清空选择</button>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-3 flex-wrap">
+                                <label class="text-sm font-medium text-gray-700">采集</label>
+                                <input type="number" id="schedule-hb-pages" value="500" min="1" max="10000" class="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-center">
+                                <span class="text-sm text-gray-500">条</span>
+                            </div>
                         </div>
                     </div>
                     <div id="schedule-db-config" class="hidden">
-                        <div class="mb-3">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">选择省份（可多选）</label>
-                            <div class="flex flex-wrap gap-1.5" id="schedule-db-provinces"></div>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">选择省份（可多选）</label>
+                                <div class="flex flex-wrap gap-1.5" id="schedule-db-provinces"></div>
+                                <div class="mt-2 flex space-x-2">
+                                    <button type="button" id="schedule-db-select-all" class="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 transition-colors">选择全部省份</button>
+                                    <button type="button" id="schedule-db-clear-all" class="px-3 py-1 text-xs bg-red-100 text-red-700 rounded-full hover:bg-red-200 transition-colors">清空选择</button>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-3 flex-wrap">
+                                <label class="text-sm font-medium text-gray-700">采集</label>
+                                <input type="number" id="schedule-db-pages" value="500" min="1" max="10000" class="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-center">
+                                <span class="text-sm text-gray-500">条</span>
+                            </div>
                         </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">采集条数</label>
-                            <input type="number" id="schedule-db-pages" value="500" min="1" max="10000" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm">
+                    </div>
+                    <div id="schedule-tt-config" class="hidden">
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">选择分类（可多选）</label>
+                                <div class="flex flex-wrap gap-1.5" id="schedule-tt-cnl-tags"></div>
+                                <div class="mt-2 flex space-x-2">
+                                    <button type="button" id="schedule-tt-select-all" class="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 transition-colors">选择全部分类</button>
+                                    <button type="button" id="schedule-tt-clear-all" class="px-3 py-1 text-xs bg-red-100 text-red-700 rounded-full hover:bg-red-200 transition-colors">清空选择</button>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-3 flex-wrap">
+                                <label class="text-sm font-medium text-gray-700">采集</label>
+                                <input type="number" id="schedule-tt-pages" value="500" min="1" max="10000" class="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-center">
+                                <span class="text-sm text-gray-500">条</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="schedule-mem-config" class="hidden">
+                        <div class="flex items-center gap-3 flex-wrap">
+                            <label class="text-sm font-medium text-gray-700">栏目</label>
+                            <select id="schedule-mem-source" class="px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                <option value="bz" selected>标准文本</option>
+                                <option value="gz">规章</option>
+                                <option value="all">全部（标准文本+规章）</option>
+                            </select>
+                            <span class="text-gray-300 mx-1">|</span>
+                            <label class="text-sm font-medium text-gray-700">采集</label>
+                            <input type="number" id="schedule-mem-pages" value="500" min="1" max="10000" class="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-center">
+                            <span class="text-sm text-gray-500">条</span>
                         </div>
                     </div>
                     <div id="schedule-all-config" class="hidden">
-                        <div class="space-y-3">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">采集条数</label>
-                                <input type="number" id="schedule-all-max-results" value="500" min="1" max="50000" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm">
-                                <p class="text-xs text-gray-400 mt-1">三种标准共享此设置，每类各扫描此条数</p>
+                        <div class="space-y-4">
+                            <div class="flex items-center gap-3 flex-wrap">
+                                <label class="text-sm font-medium text-gray-700">采集</label>
+                                <input type="number" id="schedule-all-max-results" value="500" min="1" max="50000" class="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-center">
+                                <span class="text-sm text-gray-500">条/类</span>
+                                <span class="text-gray-300 mx-1">|</span>
+                                <span class="text-xs text-gray-400">每类各扫描此条数</span>
                             </div>
-                            <div class="flex items-center space-x-2">
-                                <input type="checkbox" id="schedule-all-gb-check" checked class="w-4 h-4 text-blue-500 rounded">
-                                <label class="text-sm text-gray-700">国家标准</label>
-                            </div>
-                            <div>
-                                <div class="flex items-center space-x-2 mb-2">
-                                    <input type="checkbox" id="schedule-all-hb-check" checked class="w-4 h-4 text-indigo-500 rounded">
-                                    <label class="text-sm text-gray-700">行业标准</label>
+
+                            <div class="space-y-3">
+                                <div class="collapse-card flex items-start p-3 bg-blue-50 rounded-lg border border-blue-100">
+                                    <input type="checkbox" id="schedule-all-gb-check" checked class="w-4 h-4 text-blue-500 rounded mt-0.5 flex-shrink-0">
+                                    <div class="ml-3 flex-1">
+                                        <div class="flex items-center justify-between cursor-pointer" onclick="toggleCollapse('schedule-all-gb-body','schedule-all-gb-arrow')">
+                                            <span class="text-sm font-medium text-gray-800"><i class="fa fa-book mr-1.5 text-blue-500"></i>国家标准</span>
+                                            <i class="fa fa-chevron-right text-gray-400 text-xs transition-transform" id="schedule-all-gb-arrow"></i>
+                                        </div>
+                                        <div class="collapse-body hidden mt-2" id="schedule-all-gb-body">
+                                            <p class="text-xs text-gray-400">使用上方统一采集条数设置</p>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div class="flex flex-wrap gap-1 ml-6" id="schedule-all-hb-industries"></div>
-                                <div class="flex space-x-2 ml-6 mt-1">
-                                    <button type="button" id="schedule-all-hb-safety" class="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200">安全相关</button>
-                                    <button type="button" id="schedule-all-hb-all" class="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200">全选</button>
-                                    <button type="button" id="schedule-all-hb-clear" class="px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded-full hover:bg-red-200">清空</button>
+
+                                <div class="collapse-card flex items-start p-3 bg-blue-50 rounded-lg border border-blue-100">
+                                    <input type="checkbox" id="schedule-all-hb-check" checked class="w-4 h-4 text-blue-500 rounded mt-0.5 flex-shrink-0">
+                                    <div class="ml-3 flex-1">
+                                        <div class="flex items-center justify-between cursor-pointer" onclick="toggleCollapse('schedule-all-hb-body','schedule-all-hb-arrow')">
+                                            <span class="text-sm font-medium text-gray-800"><i class="fa fa-industry mr-1.5 text-blue-500"></i>行业标准</span>
+                                            <i class="fa fa-chevron-right text-gray-400 text-xs transition-transform" id="schedule-all-hb-arrow"></i>
+                                        </div>
+                                        <div class="collapse-body hidden mt-2" id="schedule-all-hb-body">
+                                            <div class="flex flex-wrap gap-1" id="schedule-all-hb-industries"></div>
+                                            <div class="mt-1.5 flex space-x-2">
+                                                <button type="button" id="schedule-all-hb-safety" class="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition-colors" onclick="event.stopPropagation()">安全相关</button>
+                                                <button type="button" id="schedule-all-hb-all" class="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 transition-colors" onclick="event.stopPropagation()">全选</button>
+                                                <button type="button" id="schedule-all-hb-clear" class="px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded-full hover:bg-red-200 transition-colors" onclick="event.stopPropagation()">清空</button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                            <div>
-                                <div class="flex items-center space-x-2 mb-2">
-                                    <input type="checkbox" id="schedule-all-db-check" checked class="w-4 h-4 text-green-500 rounded">
-                                    <label class="text-sm text-gray-700">地方标准</label>
+
+                                <div class="collapse-card flex items-start p-3 bg-green-50 rounded-lg border border-green-100">
+                                    <input type="checkbox" id="schedule-all-db-check" checked class="w-4 h-4 text-green-500 rounded mt-0.5 flex-shrink-0">
+                                    <div class="ml-3 flex-1">
+                                        <div class="flex items-center justify-between cursor-pointer" onclick="toggleCollapse('schedule-all-db-body','schedule-all-db-arrow')">
+                                            <span class="text-sm font-medium text-gray-800"><i class="fa fa-map-marker mr-1.5 text-green-500"></i>地方标准</span>
+                                            <i class="fa fa-chevron-right text-gray-400 text-xs transition-transform" id="schedule-all-db-arrow"></i>
+                                        </div>
+                                        <div class="collapse-body hidden mt-2" id="schedule-all-db-body">
+                                            <div class="flex flex-wrap gap-1" id="schedule-all-db-provinces"></div>
+                                            <div class="mt-1.5 flex space-x-2">
+                                                <button type="button" id="schedule-all-db-all" class="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 transition-colors" onclick="event.stopPropagation()">全选</button>
+                                                <button type="button" id="schedule-all-db-clear" class="px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded-full hover:bg-red-200 transition-colors" onclick="event.stopPropagation()">清空</button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div class="flex flex-wrap gap-1 ml-6" id="schedule-all-db-provinces"></div>
-                                <div class="flex space-x-2 ml-6 mt-1">
-                                    <button type="button" id="schedule-all-db-all" class="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200">全选</button>
-                                    <button type="button" id="schedule-all-db-clear" class="px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded-full hover:bg-red-200">清空</button>
+
+                                <div class="collapse-card flex items-start p-3 bg-purple-50 rounded-lg border border-purple-100">
+                                    <input type="checkbox" id="schedule-all-tt-check" class="w-4 h-4 text-purple-500 rounded mt-0.5 flex-shrink-0">
+                                    <div class="ml-3 flex-1">
+                                        <div class="flex items-center justify-between cursor-pointer" onclick="toggleCollapse('schedule-all-tt-body','schedule-all-tt-arrow')">
+                                            <span class="text-sm font-medium text-gray-800"><i class="fa fa-users mr-1.5 text-purple-500"></i>团体标准</span>
+                                            <i class="fa fa-chevron-right text-gray-400 text-xs transition-transform" id="schedule-all-tt-arrow"></i>
+                                        </div>
+                                        <div class="collapse-body hidden mt-2" id="schedule-all-tt-body">
+                                            <div class="flex flex-wrap gap-1" id="schedule-all-tt-cnl-tags"></div>
+                                            <div class="mt-1.5 flex space-x-2">
+                                                <button type="button" id="schedule-all-tt-all" class="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 transition-colors" onclick="event.stopPropagation()">全选</button>
+                                                <button type="button" id="schedule-all-tt-clear" class="px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded-full hover:bg-red-200 transition-colors" onclick="event.stopPropagation()">清空</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="collapse-card flex items-start p-3 bg-amber-50 rounded-lg border border-amber-100">
+                                    <input type="checkbox" id="schedule-all-mem-check" class="w-4 h-4 text-amber-600 rounded mt-0.5 flex-shrink-0">
+                                    <div class="ml-3 flex-1">
+                                        <div class="flex items-center justify-between cursor-pointer" onclick="toggleCollapse('schedule-all-mem-body','schedule-all-mem-arrow')">
+                                            <span class="text-sm font-medium text-gray-800"><i class="fa fa-shield mr-1.5 text-amber-600"></i>应急管理部标准</span>
+                                            <i class="fa fa-chevron-right text-gray-400 text-xs transition-transform" id="schedule-all-mem-arrow"></i>
+                                        </div>
+                                        <div class="collapse-body hidden mt-2" id="schedule-all-mem-body">
+                                            <div class="flex items-center gap-2 text-xs">
+                                                <span class="text-gray-600">栏目</span>
+                                                <select id="schedule-all-mem-source" class="px-2 py-1 border border-gray-300 rounded text-xs">
+                                                    <option value="bz" selected>标准文本</option>
+                                                    <option value="gz">规章</option>
+                                                    <option value="all">全部（标准文本+规章）</option>
+                                                </select>
+                                                <span class="text-gray-400">·使用上方统一采集条数</span>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1187,6 +1424,22 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
         let selectedProvinces = ['江苏省'];
         let allSelectedIndustries = [];
         let allSelectedProvinces = ['江苏省'];
+        // 团体标准 CCS 一级分类代码（A-Z，去掉 I/O）选中的列表
+        let selectedTtCnlCodes = [];
+        let allTtCnlCodes = [];
+        let scheduleTtCnlCodes = [];
+
+        // 中国标准分类号（CCS）一级代码 → 中文名 映射
+        const TT_CNL1_LIST = [
+            ['A', '综合'], ['B', '农业、林业'], ['C', '医药、卫生、劳动保护'],
+            ['D', '矿业'], ['E', '石油'], ['F', '能源、核技术'],
+            ['G', '化工'], ['H', '冶金'], ['J', '机械'],
+            ['K', '电工'], ['L', '电子元器件与信息技术'], ['M', '通信、广播'],
+            ['N', '仪器、仪表'], ['P', '工程建设'], ['Q', '建材'],
+            ['R', '公路、水路运输'], ['S', '铁路'], ['T', '车辆'],
+            ['U', '船舶'], ['V', '航空、航天'], ['W', '纺织'],
+            ['X', '食品'], ['Y', '轻工、文化与生活用品'], ['Z', '环境保护'],
+        ];
         let toggleStates = {
             serverchan: false,
             pushplus: false,
@@ -1206,10 +1459,13 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             await loadIndustries();
             setupNav();
             setupScanTabs();
+            applyMaxResultsLimit();
             setupSearch();
             setupGbScan();
             setupHbScan();
             setupDbScan();
+            setupTtScan();
+            setupMemScan();
             setupAllScan();
             setupTasks();
             setupNotifications();
@@ -1298,19 +1554,26 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             });
         }
 
-        // ==================== 关键词管理（v3.4.2：四区布局） ====================
+        // ==================== 关键词管理 ====================
         let kwKeywords = [];       // 当前组匹配词
         let kwExcludes = [];       // 当前组排除词
-        let kwIndustries = [];     // 当前组行业代码
-        let kwProvinces = [];      // 当前组省份
         let kwAllGroups = {};      // 所有关键词组
         let kwCurrentGroup = '安全生产';
-        let kwAvailIndustries = null;  // 可用行业代码缓存
+
+        // 普通模式 max_results 上限；当前关键词组为"不过滤"时放开到 100000（与后端 scan.py 保持一致）
+        const MAX_RESULTS_NORMAL = 5000;
+        const MAX_RESULTS_ALL = 100000;
+        const ALL_GROUP = '__all__';
+        const ALL_GROUP_LABEL = '不过滤';
+        const isAllGroup = (name) => name === ALL_GROUP;
+        // 显示名：__all__ → 不过滤；其他 → 原名
+        const displayGroupName = (name) => isAllGroup(name) ? ALL_GROUP_LABEL : (name || '安全生产');
 
         function updateKwBadge() {
-            const grp = kwAllGroups[kwCurrentGroup];
-            const count = grp ? (grp.keywords || []).length : 0;
-            const name = kwCurrentGroup || '安全生产';
+            const isAll = isAllGroup(kwCurrentGroup);
+            const grp = isAll ? null : kwAllGroups[kwCurrentGroup];
+            const count = isAll ? 0 : (grp ? (grp.keywords || []).length : 0);
+            const name = displayGroupName(kwCurrentGroup);
             ['scan-kw-count', 'nav-kw-badge', 'schedule-kw-count'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.textContent = count;
@@ -1318,6 +1581,15 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             ['scan-kw-label', 'schedule-kw-label'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.textContent = name;
+            });
+        }
+
+        // 根据当前关键词组动态调整扫描面板 max_results 输入框上限
+        function applyMaxResultsLimit() {
+            const limit = isAllGroup(kwCurrentGroup) ? MAX_RESULTS_ALL : MAX_RESULTS_NORMAL;
+            ['gb-pages', 'hb-pages', 'db-pages', 'tt-pages', 'all-max-results'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.max = limit;
             });
         }
 
@@ -1378,61 +1650,6 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             }
         }
 
-        // --- 渲染行业代码（点击切换，统一颜色，默认顺序） ---
-        function renderKwIndustryTags() {
-            const container = document.getElementById('kw-industries-container');
-            if (!kwAvailIndustries || !kwAvailIndustries.all_codes) {
-                container.innerHTML = '<span class="w-full text-center text-gray-400 text-xs py-4">加载中...</span>';
-                return;
-            }
-            container.innerHTML = '';
-            kwAvailIndustries.all_codes.forEach(code => {
-                const name = (kwAvailIndustries.code_map && kwAvailIndustries.code_map[code]) || code;
-                const selected = kwIndustries.includes(code);
-                const tagEl = document.createElement('span');
-                tagEl.className = `kw-tag inline-flex items-center px-1.5 py-0.5 rounded-full border text-xs cursor-pointer transition-all ${
-                    selected ? 'bg-blue-500 text-white border-blue-500 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100'
-                }`;
-                tagEl.innerHTML = `<span class="font-medium">${escapeHtml(code)}</span><span class="opacity-75 ml-0.5 text-[10px]">${escapeHtml(name)}</span>`;
-                tagEl.addEventListener('click', () => {
-                    if (selected) {
-                        kwIndustries = kwIndustries.filter(c => c !== code);
-                    } else {
-                        kwIndustries.push(code);
-                    }
-                    renderKwIndustryTags();
-                    refreshKwAll();
-                });
-                container.appendChild(tagEl);
-            });
-            refreshKwAll();
-        }
-
-        // --- 渲染省份（点击切换，统一颜色，默认顺序） ---
-        function renderKwProvinceTags() {
-            const container = document.getElementById('kw-provinces-container');
-            container.innerHTML = '';
-            PROVINCES.forEach(province => {
-                const selected = kwProvinces.includes(province);
-                const tagEl = document.createElement('span');
-                tagEl.className = `kw-tag inline-flex items-center px-1.5 py-0.5 rounded-full border text-xs cursor-pointer transition-all ${
-                    selected ? 'bg-blue-500 text-white border-blue-500 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100'
-                }`;
-                tagEl.textContent = province;
-                tagEl.addEventListener('click', () => {
-                    if (selected) {
-                        kwProvinces = kwProvinces.filter(p => p !== province);
-                    } else {
-                        kwProvinces.push(province);
-                    }
-                    renderKwProvinceTags();
-                    refreshKwAll();
-                });
-                container.appendChild(tagEl);
-            });
-            refreshKwAll();
-        }
-
         // --- 添删操作 ---
         function addKeywordItem() {
             const input = document.getElementById('kw-keyword-input');
@@ -1467,13 +1684,27 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
         function refreshKwAll() {
             document.getElementById('kw-match-count').textContent = kwKeywords.length;
             document.getElementById('kw-exclude-count').textContent = kwExcludes.length;
-            document.getElementById('kw-industry-count').textContent = kwIndustries.length;
-            document.getElementById('kw-province-count').textContent = kwProvinces.length;
         }
 
         function renderGroupSelector() {
             const list = document.getElementById('kw-group-list');
             list.innerHTML = '';
+            // 第一个 Tab：固定"不过滤"特殊组（不可编辑/不可删除）
+            const allItem = document.createElement('div');
+            allItem.className = `kw-tab${isAllGroup(kwCurrentGroup) ? ' active' : ''}`;
+            allItem.innerHTML = `<span class="kw-tab-icon"><i class="fa fa-globe"></i></span><span>${escapeHtml(ALL_GROUP_LABEL)}</span><span class="kw-tab-count">0</span>`;
+            allItem.title = '不进行关键词过滤，下载全部标准（max_results 上限放开到 100000）';
+            allItem.addEventListener('click', () => {
+                if (isAllGroup(kwCurrentGroup)) return;
+                saveCurrentGroupToAllGroups();
+                kwCurrentGroup = ALL_GROUP;
+                loadGroupToTags();
+                renderGroupSelector();
+                updateKwBadge();
+                applyMaxResultsLimit();
+            });
+            list.appendChild(allItem);
+            // 普通关键词组
             Object.keys(kwAllGroups).forEach(name => {
                 const grp = kwAllGroups[name];
                 const kwCount = (grp.keywords || []).length;
@@ -1487,12 +1718,13 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     loadGroupToTags();
                     renderGroupSelector();
                     updateKwBadge();
-                    syncScanFiltersFromGroup();
+                    applyMaxResultsLimit();
                 });
                 list.appendChild(item);
             });
             const delBtn = document.getElementById('kw-delete-group-btn');
-            if (kwCurrentGroup === '安全生产' || Object.keys(kwAllGroups).length <= 1) {
+            // 默认组与"不过滤"特殊组不可删除；仅剩一个普通组时也隐藏
+            if (kwCurrentGroup === '安全生产' || isAllGroup(kwCurrentGroup) || Object.keys(kwAllGroups).length <= 1) {
                 delBtn.classList.add('hidden');
             } else {
                 delBtn.classList.remove('hidden');
@@ -1500,46 +1732,65 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
         }
 
         function saveCurrentGroupToAllGroups() {
+            // "不过滤"特殊组不写入 kwAllGroups（仅前端虚拟 Tab）
+            if (isAllGroup(kwCurrentGroup)) return;
             kwAllGroups[kwCurrentGroup] = {
                 keywords: [...kwKeywords],
-                excludes: [...kwExcludes],
-                industries: [...kwIndustries],
-                provinces: [...kwProvinces]
+                excludes: [...kwExcludes]
             };
         }
 
+        // 切换关键词组时禁用/启用编辑区（"不过滤"特殊组不可编辑）
+        function setKwEditorDisabled(disabled) {
+            const inputIds = ['kw-keyword-input', 'kw-add-keyword-btn',
+                              'kw-exclude-input', 'kw-add-exclude-btn'];
+            inputIds.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.disabled = disabled;
+            });
+            document.querySelectorAll('.kw-section').forEach(s => {
+                s.style.opacity = disabled ? '0.55' : '';
+                s.style.pointerEvents = disabled ? 'none' : '';
+            });
+        }
+
         async function loadGroupToTags() {
+            if (isAllGroup(kwCurrentGroup)) {
+                // 特殊组：清空编辑区并禁用
+                kwKeywords = [];
+                kwExcludes = [];
+                renderKeywordTags();
+                renderExcludeTags();
+                refreshKwAll();
+                setKwEditorDisabled(true);
+                return;
+            }
             const grp = kwAllGroups[kwCurrentGroup];
             if (!grp) return;
             kwKeywords = [...(grp.keywords || [])];
             kwExcludes = [...(grp.excludes || [])];
-            kwIndustries = [...(grp.industries || [])];
-            kwProvinces = [...(grp.provinces || [])];
             renderKeywordTags();
             renderExcludeTags();
-            renderKwIndustryTags();
-            renderKwProvinceTags();
             refreshKwAll();
+            setKwEditorDisabled(false);
         }
 
         async function initKeywordsPage() {
             try {
-                const [grpResp, indResp] = await Promise.all([
-                    fetch(`${API_BASE}/keyword_groups`),
-                    fetch(`${API_BASE}/industries`)
-                ]);
+                const grpResp = await fetch(`${API_BASE}/keyword_groups`);
                 const grpData = await grpResp.json();
-                kwAvailIndustries = await indResp.json();
                 kwAllGroups = grpData.groups || {};
-                if (!kwAllGroups[kwCurrentGroup]) {
+                // "不过滤"特殊组不在 kwAllGroups 中，需要单独放行
+                if (!isAllGroup(kwCurrentGroup) && !kwAllGroups[kwCurrentGroup]) {
                     kwCurrentGroup = '安全生产';
                     if (!kwAllGroups['安全生产']) {
-                        kwAllGroups['安全生产'] = { keywords: [], excludes: [], industries: [], provinces: [] };
+                        kwAllGroups['安全生产'] = { keywords: [], excludes: [] };
                     }
                 }
                 renderGroupSelector();
                 await loadGroupToTags();
                 updateKwBadge();
+                applyMaxResultsLimit();
             } catch (e) {
                 showToast('加载关键词失败: ' + (e.message || String(e)), 'error');
             }
@@ -1569,18 +1820,19 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                         return;
                     }
                     saveCurrentGroupToAllGroups();
-                    kwAllGroups[name] = { keywords: [], excludes: [], industries: [], provinces: [] };
+                    kwAllGroups[name] = { keywords: [], excludes: [] };
                     kwCurrentGroup = name;
                     renderGroupSelector();
                     loadGroupToTags();
                     updateKwBadge();
+                    applyMaxResultsLimit();
                     showToast(`已创建组「${name}」`, 'success');
                 });
             });
 
             document.getElementById('kw-delete-group-btn').addEventListener('click', () => {
-                if (kwCurrentGroup === '安全生产') {
-                    showToast('默认组不可删除', 'warning');
+                if (kwCurrentGroup === '安全生产' || isAllGroup(kwCurrentGroup)) {
+                    showToast('该组不可删除', 'warning');
                     return;
                 }
                 showConfirm('删除关键词组', `确定删除关键词组「${kwCurrentGroup}」？`, async () => {
@@ -1593,6 +1845,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             renderGroupSelector();
                             loadGroupToTags();
                             updateKwBadge();
+                            applyMaxResultsLimit();
                             showToast('已删除', 'success');
                         }
                     } catch (e) {
@@ -1611,32 +1864,6 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             document.getElementById('kw-add-exclude-btn').addEventListener('click', addExcludeItem);
             document.getElementById('kw-exclude-input').addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') { e.preventDefault(); addExcludeItem(); }
-            });
-
-            // 行业筛选快捷按钮
-            document.getElementById('kw-ind-select-all').addEventListener('click', () => {
-                if (kwAvailIndustries && kwAvailIndustries.all_codes) {
-                    kwIndustries = [...kwAvailIndustries.all_codes];
-                }
-                renderKwIndustryTags();
-                refreshKwAll();
-            });
-            document.getElementById('kw-ind-clear-all').addEventListener('click', () => {
-                kwIndustries = [];
-                renderKwIndustryTags();
-                refreshKwAll();
-            });
-
-            // 省份筛选快捷按钮
-            document.getElementById('kw-prov-select-all').addEventListener('click', () => {
-                kwProvinces = [...PROVINCES];
-                renderKwProvinceTags();
-                refreshKwAll();
-            });
-            document.getElementById('kw-prov-clear-all').addEventListener('click', () => {
-                kwProvinces = [];
-                renderKwProvinceTags();
-                refreshKwAll();
             });
 
             // 保存
@@ -1681,6 +1908,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             renderGroupSelector();
                             loadGroupToTags();
                             updateKwBadge();
+                            applyMaxResultsLimit();
                             showToast('已恢复默认关键词', 'success');
                         }
                     } catch (e) {
@@ -1755,19 +1983,28 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             }
         }
 
-        function syncScanFiltersFromGroup() {
-            /* 从当前关键词组同步行业/省份选择到扫描页面 */
-            const grp = kwAllGroups[kwCurrentGroup];
-            if (grp) {
-                if (grp.industries && grp.industries.length > 0) {
-                    selectedIndustries = [...grp.industries];
-                    allSelectedIndustries = [...grp.industries];
-                }
-                if (grp.provinces && grp.provinces.length > 0) {
-                    selectedProvinces = [...grp.provinces];
-                    allSelectedProvinces = [...grp.provinces];
-                }
-            }
+        // 扫描面板行业/省份独立持久化（localStorage）
+        function saveScanFilters() {
+            try {
+                localStorage.setItem('std_scan_filters', JSON.stringify({
+                    hb_industries: selectedIndustries,
+                    db_provinces: selectedProvinces,
+                    all_industries: allSelectedIndustries,
+                    all_provinces: allSelectedProvinces
+                }));
+            } catch (e) { /* localStorage 不可用时静默 */ }
+        }
+
+        function loadScanFilters() {
+            try {
+                const raw = localStorage.getItem('std_scan_filters');
+                if (!raw) return;
+                const data = JSON.parse(raw);
+                if (Array.isArray(data.hb_industries)) selectedIndustries = data.hb_industries;
+                if (Array.isArray(data.db_provinces)) selectedProvinces = data.db_provinces;
+                if (Array.isArray(data.all_industries)) allSelectedIndustries = data.all_industries;
+                if (Array.isArray(data.all_provinces)) allSelectedProvinces = data.all_provinces;
+            } catch (e) { /* 解析失败静默 */ }
         }
 
         async function loadIndustries() {
@@ -1775,12 +2012,13 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 const resp = await fetch(`${API_BASE}/industries`);
                 industries = await resp.json();
 
-                // 先加载关键词组，再同步选择到扫描页
+                // 恢复扫描面板行业/省份的独立持久化选择
+                loadScanFilters();
+                // 加载关键词组（用于 nav badge）
                 try {
                     const grpResp = await fetch(`${API_BASE}/keyword_groups`);
                     const grpData = await grpResp.json();
                     kwAllGroups = grpData.groups || {};
-                    syncScanFiltersFromGroup();
                     updateKwBadge();
                 } catch (e) { /* 静默处理 */ }
 
@@ -1918,6 +2156,8 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             html += renderGbCard(ckpt.gb || null);
             html += renderHbCard(ckpt.hb || null);
             html += renderDbCard(ckpt.db || null);
+            html += renderTtCard(ckpt.tt || null);
+            html += renderMemCard(ckpt.mem || null);
 
             container.innerHTML = html;
 
@@ -2019,6 +2259,68 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             </div>`;
         }
 
+        function renderTtCard(tt) {
+            const hasData = !!tt && typeof tt === 'object';
+            const items = hasData ? Object.entries(tt) : [];
+            return `
+            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="font-medium text-sm text-gray-800 dark:text-gray-200 flex items-center">
+                        <i class="fa fa-users mr-2 text-purple-500"></i>团体标准 (TT)
+                    </h3>
+                    ${items.length > 0 ? `<button data-ckpt-reset="tt" data-ckpt-label="团体标准(TT)" class="text-xs bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-500 dark:text-red-400 px-2.5 py-1 rounded-lg transition-colors"><i class="fa fa-undo mr-1"></i>全部重置</button>` : ''}
+                </div>
+                ${items.length > 0
+                    ? items.map(([key, data]) => `
+                        <div class="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400 py-0.5">
+                            <div class="flex items-center gap-3">
+                                <span class="text-purple-700 dark:text-purple-400 font-semibold text-xs">全部分类</span>
+                                <span class="text-gray-300 dark:text-gray-600">|</span>
+                                <span>起点: <span class="font-mono text-xs">${data.first_name ? escapeHtml(data.first_name) + ' ' : ''}${data.first_code ? '(' + escapeHtml(data.first_code) + ')' : '--'}</span></span>
+                                <span class="text-gray-300 dark:text-gray-600">|</span>
+                                <span><span class="font-semibold text-purple-600 dark:text-purple-400">${data.count || 0}</span> 条</span>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <span class="text-xs text-gray-400 dark:text-gray-500">${data.updatedAt || ''}</span>
+                                <button data-ckpt-reset="tt" data-ckpt-label="团标" class="text-xs text-red-400 hover:text-red-600 dark:text-red-500 dark:hover:text-red-400 transition-colors"><i class="fa fa-undo"></i></button>
+                            </div>
+                        </div>
+                    `).join('')
+                    : `<p class="text-xs text-gray-400 dark:text-gray-500">暂无记录，执行增量扫描后显示</p>`}
+            </div>`;
+        }
+
+        function renderMemCard(mem) {
+            const hasData = !!mem && typeof mem === 'object';
+            const items = hasData ? Object.entries(mem) : [];
+            return `
+            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="font-medium text-sm text-gray-800 dark:text-gray-200 flex items-center">
+                        <i class="fa fa-shield mr-2 text-amber-600"></i>应急管理部标准 (MEM)
+                    </h3>
+                    ${items.length > 0 ? `<button data-ckpt-reset="mem" data-ckpt-label="应急管理部标准(MEM)" class="text-xs bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-500 dark:text-red-400 px-2.5 py-1 rounded-lg transition-colors"><i class="fa fa-undo mr-1"></i>全部重置</button>` : ''}
+                </div>
+                ${items.length > 0
+                    ? items.map(([key, data]) => `
+                        <div class="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400 py-0.5">
+                            <div class="flex items-center gap-3">
+                                <span class="text-amber-700 dark:text-amber-400 font-semibold text-xs">全部分类</span>
+                                <span class="text-gray-300 dark:text-gray-600">|</span>
+                                <span>起点: <span class="font-mono text-xs">${data.first_name ? escapeHtml(data.first_name) + ' ' : ''}${data.first_code ? '(' + escapeHtml(data.first_code) + ')' : '--'}</span></span>
+                                <span class="text-gray-300 dark:text-gray-600">|</span>
+                                <span><span class="font-semibold text-amber-600 dark:text-amber-400">${data.count || 0}</span> 条</span>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <span class="text-xs text-gray-400 dark:text-gray-500">${data.updatedAt || ''}</span>
+                                <button data-ckpt-reset="mem" data-ckpt-label="应急管理部标准" class="text-xs text-red-400 hover:text-red-600 dark:text-red-500 dark:hover:text-red-400 transition-colors"><i class="fa fa-undo"></i></button>
+                            </div>
+                        </div>
+                    `).join('')
+                    : `<p class="text-xs text-gray-400 dark:text-gray-500">暂无记录，执行增量扫描后显示</p>`}
+            </div>`;
+        }
+
         async function doResetCheckpoint(scanType, item) {
             try {
                 const params = new URLSearchParams();
@@ -2107,23 +2409,25 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 updateSearchSelectedCount();
             });
 
-            document.getElementById('search-download-selected-btn').addEventListener('click', () => {
+            // 顶部 + 底部下载按钮共享同一行为
+            const onDownloadSelected = () => {
                 const selected = getSelectedSearchItems();
                 if (selected.length === 0) {
                     showToast('请至少选择一个标准', 'warning');
                     return;
                 }
                 downloadSearchItems(selected);
-            });
-
-            document.getElementById('search-download-all-btn').addEventListener('click', () => {
+            };
+            const onDownloadAll = () => {
                 const downloadable = searchResults.filter(s => s.downloadable);
                 if (downloadable.length === 0) {
                     showToast('没有可下载的标准', 'warning');
                     return;
                 }
                 downloadSearchItems(downloadable);
-            });
+            };
+            document.getElementById('search-download-selected-btn-top').addEventListener('click', onDownloadSelected);
+            document.getElementById('search-download-all-btn-top').addEventListener('click', onDownloadAll);
 
             document.getElementById('search-open-folder-btn').addEventListener('click', () => {
                 openOutputDir();
@@ -2140,6 +2444,64 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 if (searchDlPollTimer) {
                     clearInterval(searchDlPollTimer);
                     searchDlPollTimer = null;
+                }
+            });
+
+            // 批量搜索下载
+            const batchModal = document.getElementById('batch-search-modal');
+            const batchInput = document.getElementById('batch-search-input');
+            document.getElementById('search-batch-btn').addEventListener('click', () => {
+                batchInput.value = '';
+                document.getElementById('batch-search-type').value = document.getElementById('search-type').value;
+                batchModal.classList.remove('hidden');
+                setTimeout(() => batchInput.focus(), 100);
+            });
+            document.getElementById('batch-search-cancel-btn').addEventListener('click', () => {
+                batchModal.classList.add('hidden');
+            });
+            document.getElementById('batch-search-ok-btn').addEventListener('click', async () => {
+                const text = batchInput.value;
+                const queries = text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+                if (queries.length === 0) {
+                    showToast('请输入至少一个关键词或标准号', 'warning');
+                    return;
+                }
+                if (queries.length > 200) {
+                    showToast(`关键词过多（${queries.length}），上限 200`, 'warning');
+                    return;
+                }
+                const stdType = document.getElementById('batch-search-type').value;
+                const perMax = parseInt(document.getElementById('batch-search-per-max').value) || 20;
+                const autoDl = document.getElementById('batch-search-auto-dl').checked;
+
+                const okBtn = document.getElementById('batch-search-ok-btn');
+                okBtn.disabled = true;
+                okBtn.innerHTML = '<i class="fa fa-spinner fa-spin mr-1"></i>提交中...';
+                try {
+                    const resp = await fetch(`${API_BASE}/search/batch`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            queries,
+                            std_type: stdType,
+                            per_query_max: perMax,
+                            auto_download: autoDl,
+                        })
+                    });
+                    const result = await resp.json();
+                    if (result.success) {
+                        batchModal.classList.add('hidden');
+                        showToast(`批量任务已启动（${queries.length} 个关键词）`, 'success');
+                        navigateToPage('tasks');
+                        setTimeout(() => toggleTaskExpand(result.task_id), 500);
+                    } else {
+                        showToast('启动失败: ' + (result.detail || '未知错误'), 'error');
+                    }
+                } catch (e) {
+                    showToast('启动失败: ' + (e.message || String(e)), 'error');
+                } finally {
+                    okBtn.disabled = false;
+                    okBtn.innerHTML = '开始批量搜索';
                 }
             });
         }
@@ -2199,6 +2561,19 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
             document.getElementById('search-select-all').checked = false;
             updateSearchSelectedCount();
+
+            // 搜索完成后自动滚到结果底部，让表格完整展示在窗口内
+            setTimeout(() => {
+                const panel = document.getElementById('search-results-panel');
+                const main = document.querySelector('.main-content');
+                if (panel && main) {
+                    const mainRect = main.getBoundingClientRect();
+                    const panelRect = panel.getBoundingClientRect();
+                    // 让 panel 底部刚好对齐 main-content 视口底部
+                    const offset = panelRect.bottom - mainRect.bottom;
+                    main.scrollTo({ top: main.scrollTop + offset, behavior: 'smooth' });
+                }
+            }, 100);
         }
 
         function copyToClipboard(text) {
@@ -2222,8 +2597,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
         function updateSearchSelectedCount() {
             const count = document.querySelectorAll('.search-item-checkbox:checked').length;
-            document.getElementById('search-selected-count').textContent = `已选 ${count} 项`;
-            document.getElementById('search-download-selected-btn').disabled = count === 0;
+            // 顶部"已选 N 项"显示
+            document.getElementById('search-selected-count-top').textContent = `已选 ${count} 项`;
+            document.getElementById('search-download-selected-btn-top').disabled = count === 0;
 
             const totalCheckable = document.querySelectorAll('.search-item-checkbox:not(:disabled)').length;
             document.getElementById('search-select-all').checked = count > 0 && count === totalCheckable;
@@ -2263,6 +2639,19 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             document.getElementById('search-dl-total').textContent = String(total);
             document.getElementById('search-open-folder-btn').classList.add('hidden');
             document.getElementById('search-view-task-btn').classList.add('hidden');
+            // 下载启动后自动滚动到进度面板，确保用户能看见进度
+            setTimeout(() => {
+                const main = document.querySelector('.main-content');
+                if (main) {
+                    const mainRect = main.getBoundingClientRect();
+                    const panelRect = panel.getBoundingClientRect();
+                    // 计算让进度面板显示在 main-content 视口中央所需的滚动量
+                    const offset = panelRect.top - mainRect.top - (main.clientHeight - panel.offsetHeight) / 2;
+                    main.scrollTo({ top: main.scrollTop + offset, behavior: 'smooth' });
+                } else {
+                    panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }, 100);
         }
 
         function pollSearchDownloadProgress() {
@@ -2334,7 +2723,8 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 try {
                     const incr = document.getElementById('gb-incr').checked;
                     const state = document.getElementById('gb-state').value;
-                    const resp = await fetch(`${API_BASE}/scan/gb?max_results=${pages}&scan_only=${scanOnly}&incr=${incr}&keyword_group=${encodeURIComponent(kwCurrentGroup)}&std_state=${encodeURIComponent(state)}`, { method: 'POST' });
+                    const kg = kwCurrentGroup;
+                    const resp = await fetch(`${API_BASE}/scan/gb?max_results=${pages}&scan_only=${scanOnly}&incr=${incr}&keyword_group=${encodeURIComponent(kg)}&std_state=${encodeURIComponent(state)}`, { method: 'POST' });
                     const result = await resp.json();
 
                     if (result.success) {
@@ -2391,6 +2781,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
                 container.appendChild(tag);
             });
+            saveScanFilters();
         }
 
         function setupHbScan() {
@@ -2482,6 +2873,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
                 container.appendChild(tag);
             });
+            saveScanFilters();
         }
 
         function setupDbScan() {
@@ -2534,6 +2926,140 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             });
         }
 
+        // ==================== 团体标准（TT） ====================
+        // 渲染 CCS 一级分类标签（共用：扫描面板/联合扫描/定时任务）
+        // containerId: 标签容器 DOM id；selectedArr: 引用所选代码数组（运行时双向同步）
+        function renderTtCnlTags(containerId, selectedArr) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            container.innerHTML = '';
+
+            if (selectedArr.length === 0) {
+                const hint = document.createElement('span');
+                hint.className = 'px-2.5 py-1 rounded-full text-xs bg-purple-500 text-white shadow-sm';
+                hint.textContent = '未选择 = 全部分类';
+                container.appendChild(hint);
+            }
+
+            TT_CNL1_LIST.forEach(([code, name]) => {
+                const isSelected = selectedArr.includes(code);
+                const tag = document.createElement('span');
+                tag.className = `px-2.5 py-1 rounded-full text-xs cursor-pointer transition-all ${
+                    isSelected
+                        ? 'bg-purple-500 text-white shadow-sm'
+                        : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+                }`;
+                tag.innerHTML = `<span class="font-medium">${code}</span><span class="opacity-75"> - ${name}</span>`;
+                tag.addEventListener('click', () => {
+                    const idx = selectedArr.indexOf(code);
+                    if (idx > -1) {
+                        selectedArr.splice(idx, 1);
+                    } else {
+                        selectedArr.push(code);
+                    }
+                    renderTtCnlTags(containerId, selectedArr);
+                });
+                container.appendChild(tag);
+            });
+        }
+
+        function setupTtScan() {
+            // 选择全部 / 清空选择
+            document.getElementById('tt-select-all')?.addEventListener('click', () => {
+                selectedTtCnlCodes = TT_CNL1_LIST.map(([code]) => code);
+                renderTtCnlTags('tt-cnl-tags', selectedTtCnlCodes);
+            });
+            document.getElementById('tt-clear-all')?.addEventListener('click', () => {
+                selectedTtCnlCodes = [];
+                renderTtCnlTags('tt-cnl-tags', selectedTtCnlCodes);
+            });
+
+            // 扫描按钮
+            document.getElementById('tt-scan-btn').addEventListener('click', async () => {
+                const pages = document.getElementById('tt-pages').value;
+                const scanOnly = document.getElementById('tt-scan-only').checked;
+
+                const btn = document.getElementById('tt-scan-btn');
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i>处理中...';
+
+                try {
+                    const incr = document.getElementById('tt-incr').checked;
+                    const state = document.getElementById('tt-state').value;
+                    const params = new URLSearchParams();
+                    params.set('max_results', parseInt(pages));
+                    params.set('scan_only', scanOnly);
+                    params.set('incr', incr);
+                    params.set('keyword_group', kwCurrentGroup);
+                    params.set('std_state', state);
+                    selectedTtCnlCodes.forEach(c => params.append('cnl1_codes', c));
+                    const resp = await fetch(`${API_BASE}/scan/tt?${params.toString()}`, {
+                        method: 'POST'
+                    });
+                    const result = await resp.json();
+
+                    if (result.success) {
+                        showToast('扫描已启动，请在弹出浏览器中完成 WAF 验证', 'success');
+                        navigateToPage('tasks');
+                        setTimeout(() => toggleTaskExpand(result.task_id), 500);
+                    } else {
+                        showToast('启动失败: ' + (result.detail || result.message || '未知错误'), 'error');
+                    }
+                } catch (e) {
+                    showToast('失败: ' + (e.message || String(e)), 'error');
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa fa-play mr-2"></i>开始扫描团体标准';
+                }
+            });
+
+            // 初始渲染 CCS 标签
+            renderTtCnlTags('tt-cnl-tags', selectedTtCnlCodes);
+            renderTtCnlTags('all-tt-cnl-tags', allTtCnlCodes);
+        }
+
+        function setupMemScan() {
+            // 应急管理部标准扫描（直连 mem.gov.cn 静态 HTML，无 WAF，无分类筛选）
+            document.getElementById('mem-scan-btn')?.addEventListener('click', async () => {
+                const pages = document.getElementById('mem-pages').value;
+                const scanOnly = document.getElementById('mem-scan-only').checked;
+                const source = document.getElementById('mem-source').value;
+
+                const btn = document.getElementById('mem-scan-btn');
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i>处理中...';
+
+                try {
+                    const incr = document.getElementById('mem-incr').checked;
+                    const state = document.getElementById('mem-state').value;
+                    const params = new URLSearchParams();
+                    params.set('source', source);
+                    params.set('max_results', parseInt(pages));
+                    params.set('scan_only', scanOnly);
+                    params.set('incr', incr);
+                    params.set('keyword_group', kwCurrentGroup);
+                    params.set('std_state', state);
+                    const resp = await fetch(`${API_BASE}/scan/mem?${params.toString()}`, {
+                        method: 'POST'
+                    });
+                    const result = await resp.json();
+
+                    if (result.success) {
+                        showToast('扫描已启动', 'success');
+                        navigateToPage('tasks');
+                        setTimeout(() => toggleTaskExpand(result.task_id), 500);
+                    } else {
+                        showToast('启动失败: ' + (result.detail || result.message || '未知错误'), 'error');
+                    }
+                } catch (e) {
+                    showToast('失败: ' + (e.message || String(e)), 'error');
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa fa-play mr-2"></i>开始扫描应急管理部标准/规章';
+                }
+            });
+        }
+
         function renderAllIndustryTags() {
             const container = document.getElementById('all-hb-industry-tags');
             if (!container || !industries.all_codes) return;
@@ -2541,7 +3067,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
             if (allSelectedIndustries.length === 0) {
                 const hint = document.createElement('span');
-                hint.className = 'px-2 py-0.5 rounded-full text-xs bg-indigo-500 text-white shadow-sm';
+                hint.className = 'px-2.5 py-1 rounded-full text-xs bg-blue-500 text-white shadow-sm';
                 hint.textContent = '未选择 = 全部行业';
                 container.appendChild(hint);
             }
@@ -2552,11 +3078,11 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 const isSelected = allSelectedIndustries.includes(code);
 
                 const tag = document.createElement('span');
-                tag.className = `px-2 py-0.5 rounded-full text-xs cursor-pointer transition-all ${
+                tag.className = `px-2.5 py-1 rounded-full text-xs cursor-pointer transition-all ${
                     isSelected
-                        ? 'bg-indigo-500 text-white shadow-sm'
+                        ? 'bg-blue-500 text-white shadow-sm'
                         : isSafety
-                            ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                            ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
                             : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
                 }`;
                 tag.innerHTML = `<span class="font-medium">${code}</span><span class="opacity-75"> - ${name}</span>`;
@@ -2573,6 +3099,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
                 container.appendChild(tag);
             });
+            saveScanFilters();
         }
 
         function renderAllProvinceTags() {
@@ -2582,7 +3109,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
             if (allSelectedProvinces.length === 0) {
                 const hint = document.createElement('span');
-                hint.className = 'px-2 py-0.5 rounded-full text-xs bg-green-500 text-white shadow-sm';
+                hint.className = 'px-2.5 py-1 rounded-full text-xs bg-green-500 text-white shadow-sm';
                 hint.textContent = '未选择 = 全部省份';
                 container.appendChild(hint);
             }
@@ -2591,7 +3118,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 const isSelected = allSelectedProvinces.includes(province);
 
                 const tag = document.createElement('span');
-                tag.className = `px-2 py-0.5 rounded-full text-xs cursor-pointer transition-all ${
+                tag.className = `px-2.5 py-1 rounded-full text-xs cursor-pointer transition-all ${
                     isSelected
                         ? 'bg-green-500 text-white shadow-sm'
                         : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
@@ -2610,6 +3137,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
                 container.appendChild(tag);
             });
+            saveScanFilters();
         }
 
         function setupAllScan() {
@@ -2638,16 +3166,30 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 renderAllProvinceTags();
             });
 
+            document.getElementById('all-tt-select-all')?.addEventListener('click', () => {
+                allTtCnlCodes = TT_CNL1_LIST.map(([code]) => code);
+                renderTtCnlTags('all-tt-cnl-tags', allTtCnlCodes);
+            });
+
+            document.getElementById('all-tt-clear-all')?.addEventListener('click', () => {
+                allTtCnlCodes = [];
+                renderTtCnlTags('all-tt-cnl-tags', allTtCnlCodes);
+            });
+
             document.getElementById('all-scan-btn').addEventListener('click', async () => {
                 const gbChecked = document.getElementById('all-gb-check').checked;
                 const hbChecked = document.getElementById('all-hb-check').checked;
                 const dbChecked = document.getElementById('all-db-check').checked;
+                const ttChecked = document.getElementById('all-tt-check').checked;
+                const memChecked = document.getElementById('all-mem-check').checked;
                 const scanOnly = document.getElementById('all-scan-only').checked;
 
                 const scanTypes = [];
                 if (gbChecked) scanTypes.push('gb');
                 if (hbChecked) scanTypes.push('hb');
                 if (dbChecked) scanTypes.push('db');
+                if (ttChecked) scanTypes.push('tt');
+                if (memChecked) scanTypes.push('mem');
 
                 if (scanTypes.length === 0) {
                     showToast('请至少选择一种标准类型', 'warning');
@@ -2661,6 +3203,12 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 } : {};
                 const dbConfig = dbChecked ? {
                     provinces: allSelectedProvinces.length > 0 ? allSelectedProvinces : null
+                } : {};
+                const ttConfig = ttChecked ? {
+                    cnl1_codes: allTtCnlCodes.length > 0 ? [...allTtCnlCodes] : null
+                } : {};
+                const memConfig = memChecked ? {
+                    source: document.getElementById('all-mem-source').value
                 } : {};
                 const btn = document.getElementById('all-scan-btn');
                 btn.disabled = true;
@@ -2679,7 +3227,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             std_state: document.getElementById('all-state').value,
                             gb_config: gbConfig,
                             hb_config: hbConfig,
-                            db_config: dbConfig
+                            db_config: dbConfig,
+                            tt_config: ttConfig,
+                            mem_config: memConfig
                         })
                     });
                     const result = await resp.json();
@@ -2698,11 +3248,11 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
         }
 
         function getTaskTitle(task) {
-            const typeNames = { 'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'search': '搜索下载' };
+            const typeNames = { 'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准', 'mem': '应急管理部标准', 'search': '搜索下载' };
             const base = typeNames[task.std_type] || '标准';
             const kw = task.keyword_group || '';
             const incr = task.incr ? ' <i class="fa fa-plus-circle text-blue-400 text-xs ml-2" title="增量扫描"></i>' : '';
-            if (kw) return `${base} · ${kw}${incr}`;
+            if (kw) return `${base} · ${displayGroupName(kw)}${incr}`;
             return base + incr;
         }
 
@@ -2822,13 +3372,13 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                 </div>
                                 ${(stats.direct_dl || stats.previewed || stats.skipped_existing || stats.skipped_nodl) ? `
                                 <div class="flex items-center gap-2 text-[11px] text-gray-400">
-                                    <span>直下 <b class="task-stat-dd text-gray-500" data-stat="direct_dl">${stats.direct_dl || 0}</b></span>
+                                    <span>直下 <b class="task-stat-direct-dl text-gray-500" data-stat="direct_dl">${stats.direct_dl || 0}</b></span>
                                     <span class="text-gray-300">·</span>
-                                    <span>预览 <b class="task-stat-pr text-gray-500" data-stat="previewed">${stats.previewed || 0}</b></span>
+                                    <span>预览 <b class="task-stat-previewed text-gray-500" data-stat="previewed">${stats.previewed || 0}</b></span>
                                     <span class="text-gray-300">·</span>
-                                    <span>重复 <b class="task-stat-se text-gray-500" data-stat="skipped_existing">${stats.skipped_existing || 0}</b></span>
+                                    <span>重复 <b class="task-stat-skipped-existing text-gray-500" data-stat="skipped_existing">${stats.skipped_existing || 0}</b></span>
                                     <span class="text-gray-300">·</span>
-                                    <span>不可下 <b class="task-stat-sn text-gray-500" data-stat="skipped_nodl">${stats.skipped_nodl || 0}</b></span>
+                                    <span>不可下 <b class="task-stat-skipped-nodl text-gray-500" data-stat="skipped_nodl">${stats.skipped_nodl || 0}</b></span>
                                 </div>
                                 ` : ''}
                             </div>
@@ -2876,9 +3426,13 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
             // 如果卡片初始化时 stats 全为 0（stats 行未渲染），现在 stats 有数据了，
             // 需要重建卡片 HTML 以显示 stats 行（否则后续 querySelector 找不到元素）
+            // 同样处理右侧子统计行（直下/预览/重复/不可下）：初始全为 0 时不渲染，
+            // 后续下载阶段有数据时需重建，否则右行 DOM 缺失导致数据不更新
             const hasStatsRow = !!card.querySelector('.task-stat-scanned');
             const hasStatsNow = !!(stats.scanned || stats.success || stats.failed || stats.skipped);
-            if (hasStatsNow && !hasStatsRow) {
+            const hasSubStatsRow = !!card.querySelector('.task-stat-direct-dl');
+            const hasSubStatsNow = !!(stats.direct_dl || stats.previewed || stats.skipped_existing || stats.skipped_nodl);
+            if ((hasStatsNow && !hasStatsRow) || (hasSubStatsNow && !hasSubStatsRow)) {
                 const wasExpanded = !card.querySelector('.task-detail-content')?.classList.contains('hidden');
                 card.outerHTML = renderTaskCard(task);
                 const newCard = document.querySelector(`.task-card[data-task-id="${task.task_id}"]`);
@@ -3154,6 +3708,16 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     container.appendChild(div.firstElementChild);
                 }
             });
+
+            // 确保 DOM 顺序与 tasks 数组一致（新任务在最前，从新到旧）
+            // diffing 时新卡片被 appendChild 到末尾，需按后端返回顺序重排
+            const taskOrder = new Map(tasks.map((t, i) => [t.task_id, i]));
+            const cards = Array.from(container.querySelectorAll('.task-card'));
+            const needsReorder = cards.some((card, i) => taskOrder.get(card.dataset.taskId) !== i);
+            if (needsReorder) {
+                cards.sort((a, b) => (taskOrder.get(a.dataset.taskId) ?? 0) - (taskOrder.get(b.dataset.taskId) ?? 0));
+                cards.forEach(card => container.appendChild(card));
+            }
 
             Object.keys(expandedTasks).forEach(taskId => {
                 const detailEl = document.getElementById('detail-' + taskId);
@@ -3441,6 +4005,14 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             if (items.length > 0) {
                 const rows = pageItems.map((s, i) => {
                     const globalIdx = (currentPage - 1) * DETAIL_PAGE_SIZE + i;
+                    // 字段兼容：GB/HB 用 stdCode/stdName/stdNature/state/issueDate/actDate，
+                    //          TT/MEM 用 code/name/status/publishDate（无 stdNature/actDate）
+                    const code = s.stdCode || s.code || '';
+                    const name = s.stdName || s.name || '';
+                    const nature = s.stdNature || '';
+                    const state = s.state || s.status || '';
+                    const issueDate = s.issueDate || s.publishDate || '';
+                    const actDate = s.actDate || '';
                     const isFailed = s.dlStatus === 'failed' || (s.dlStatus && (s.dlStatus.startsWith('failed_') || s.dlStatus.startsWith('error:')));
                     const isPending = !s.dlStatus;
                     const lbl = getDlStatusLabel(s.dlStatus);
@@ -3457,12 +4029,12 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                         : `<span class="${cls}">${cellText(text)}</span>`;
 
                     return `<tr class="border-b border-gray-50 hover:bg-gray-50/50">
-                        <td class="py-1 px-1.5 whitespace-nowrap">${linkTag(s.stdCode, 'inline-block px-1.5 py-0.5 rounded text-[10px] font-mono text-gray-500 bg-gray-100')}</td>
-                        <td class="py-1 px-1.5 text-[10px] text-gray-700">${linkTag(s.stdName, 'text-[10px] text-gray-700')}</td>
-                        <td class="py-1 px-1.5 text-[10px] text-gray-400 whitespace-nowrap">${s.stdNature || '-'}</td>
-                        <td class="py-1 px-1.5 text-[10px] whitespace-nowrap">${s.state === '现行' ? '<span class="inline-block px-1 rounded text-[10px] text-green-700 bg-green-50">现行</span>' : s.state === '废止' ? '<span class="inline-block px-1 rounded text-[10px] text-red-600 bg-red-50">废止</span>' : s.state || '-'}</td>
-                        <td class="py-1 px-1.5 text-[10px] text-gray-400 whitespace-nowrap">${s.issueDate || '-'}</td>
-                        <td class="py-1 px-1.5 text-[10px] text-gray-400 whitespace-nowrap">${s.actDate || '-'}</td>
+                        <td class="py-1 px-1.5 whitespace-nowrap">${linkTag(code, 'inline-block px-1.5 py-0.5 rounded text-[10px] font-mono text-gray-500 bg-gray-100')}</td>
+                        <td class="py-1 px-1.5 text-[10px] text-gray-700">${linkTag(name, 'text-[10px] text-gray-700')}</td>
+                        <td class="py-1 px-1.5 text-[10px] text-gray-400 whitespace-nowrap">${nature || '-'}</td>
+                        <td class="py-1 px-1.5 text-[10px] whitespace-nowrap">${state === '现行' ? '<span class="inline-block px-1 rounded text-[10px] text-green-700 bg-green-50">现行</span>' : state === '废止' ? '<span class="inline-block px-1 rounded text-[10px] text-red-600 bg-red-50">废止</span>' : state || '-'}</td>
+                        <td class="py-1 px-1.5 text-[10px] text-gray-400 whitespace-nowrap">${issueDate || '-'}</td>
+                        <td class="py-1 px-1.5 text-[10px] text-gray-400 whitespace-nowrap">${actDate || '-'}</td>
                         <td class="py-1 px-1.5 text-[10px] text-center whitespace-nowrap dl-status-cell">${dlBadge}${retryBtn}</td>
                     </tr>`;
                 }).join('');
@@ -4032,7 +4604,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     return;
                 }
 
-                const typeNames = { 'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'all': '联合扫描' };
+                const typeNames = { 'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准', 'mem': '应急管理部标准', 'all': '联合扫描' };
 
                 container.innerHTML = data.jobs.map(job => `
                     <div class="task-card bg-white rounded-xl shadow-sm p-4 border border-gray-100">
@@ -4086,6 +4658,8 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             editingScheduleId = jobId;
             selectedScheduleIndustries = [];
             selectedScheduleProvinces = [];
+            scheduleTtCnlCodes = [];
+            scheduleAllTtCnlCodes = [];
 
             const modal = document.getElementById('schedule-modal');
             const title = document.getElementById('schedule-modal-title');
@@ -4101,6 +4675,8 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             modal.classList.remove('hidden');
             renderScheduleIndustryTags();
             renderScheduleProvinceTags();
+            renderTtCnlTags('schedule-tt-cnl-tags', scheduleTtCnlCodes);
+            renderTtCnlTags('schedule-all-tt-cnl-tags', scheduleAllTtCnlCodes);
         }
 
         function closeScheduleModal() {
@@ -4114,6 +4690,13 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             document.getElementById('schedule-gb-pages').value = 500;
             document.getElementById('schedule-hb-pages').value = 500;
             document.getElementById('schedule-db-pages').value = 500;
+            document.getElementById('schedule-tt-pages').value = 500;
+            document.getElementById('schedule-mem-pages').value = 500;
+            document.getElementById('schedule-mem-source').value = 'bz';
+            document.getElementById('schedule-all-mem-source').value = 'bz';
+            scheduleTtCnlCodes = [];
+            scheduleAllTtCnlCodes = [];
+            document.getElementById('schedule-all-tt-check').checked = false;
             scheduleFreq = 'daily';
             scheduleWeekdays = [1];
             scheduleMonthdays = [1];
@@ -4151,14 +4734,28 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                         } else if (job.type === 'db') {
                             document.getElementById('schedule-db-pages').value = config.max_results || 500;
                             selectedScheduleProvinces = config.provinces || [];
+                        } else if (job.type === 'tt') {
+                            document.getElementById('schedule-tt-pages').value = config.max_results || 500;
+                            scheduleTtCnlCodes = Array.isArray(config.cnl1_codes) ? [...config.cnl1_codes] : [];
+                        } else if (job.type === 'mem') {
+                            document.getElementById('schedule-mem-pages').value = config.max_results || 500;
+                            const memSrc = config.mem_source || config.source || 'bz';
+                            const memValid = ['bz', 'gz', 'all'].includes(memSrc) ? memSrc : 'bz';
+                            document.getElementById('schedule-mem-source').value = memValid;
                         } else if (job.type === 'all') {
                             const scanTypes = config.scan_types || ['gb', 'hb', 'db'];
                             document.getElementById('schedule-all-gb-check').checked = scanTypes.includes('gb');
                             document.getElementById('schedule-all-hb-check').checked = scanTypes.includes('hb');
                             document.getElementById('schedule-all-db-check').checked = scanTypes.includes('db');
+                            document.getElementById('schedule-all-tt-check').checked = scanTypes.includes('tt');
+                            document.getElementById('schedule-all-mem-check').checked = scanTypes.includes('mem');
                             document.getElementById('schedule-all-max-results').value = config.max_results || 500;
+                            const memSrc2 = config.mem_source || config.source || 'bz';
+                            const memValid2 = ['bz', 'gz', 'all'].includes(memSrc2) ? memSrc2 : 'bz';
+                            document.getElementById('schedule-all-mem-source').value = memValid2;
                             scheduleAllIndustries = config.industries || [];
                             scheduleAllProvinces = config.provinces || [];
+                            scheduleAllTtCnlCodes = Array.isArray(config.cnl1_codes) ? [...config.cnl1_codes] : [];
                         }
 
                         updateScheduleTypeConfig();
@@ -4176,10 +4773,16 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             document.getElementById('schedule-gb-config').classList.toggle('hidden', type !== 'gb');
             document.getElementById('schedule-hb-config').classList.toggle('hidden', type !== 'hb');
             document.getElementById('schedule-db-config').classList.toggle('hidden', type !== 'db');
+            document.getElementById('schedule-tt-config').classList.toggle('hidden', type !== 'tt');
+            document.getElementById('schedule-mem-config').classList.toggle('hidden', type !== 'mem');
             document.getElementById('schedule-all-config').classList.toggle('hidden', type !== 'all');
+            if (type === 'tt') {
+                renderTtCnlTags('schedule-tt-cnl-tags', scheduleTtCnlCodes);
+            }
             if (type === 'all') {
                 renderScheduleAllIndustryTags();
                 renderScheduleAllProvinceTags();
+                renderTtCnlTags('schedule-all-tt-cnl-tags', scheduleAllTtCnlCodes);
             }
         }
 
@@ -4247,6 +4850,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
         let scheduleAllIndustries = [];
         let scheduleAllProvinces = [];
+        let scheduleAllTtCnlCodes = [];
 
         function renderScheduleAllIndustryTags() {
             const container = document.getElementById('schedule-all-hb-industries');
@@ -4258,11 +4862,11 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 const isSelected = scheduleAllIndustries.includes(code);
 
                 return `
-                    <span class="px-2 py-0.5 rounded-full text-xs cursor-pointer transition-all ${
+                    <span class="px-2.5 py-1 rounded-full text-xs cursor-pointer transition-all ${
                         isSelected
-                            ? 'bg-indigo-500 text-white shadow-sm'
+                            ? 'bg-blue-500 text-white shadow-sm'
                             : isSafety
-                                ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                                ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
                                 : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
                     }" onclick="toggleScheduleAllIndustry('${code}')">
                         <span class="font-medium">${code}</span><span class="opacity-75"> - ${name}</span>
@@ -4289,7 +4893,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 const isSelected = scheduleAllProvinces.includes(province);
 
                 return `
-                    <span class="px-2 py-0.5 rounded-full text-xs cursor-pointer transition-all ${
+                    <span class="px-2.5 py-1 rounded-full text-xs cursor-pointer transition-all ${
                         isSelected
                             ? 'bg-green-500 text-white shadow-sm'
                             : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
@@ -4345,15 +4949,25 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             } else if (type === 'db') {
                 config.max_results = parseInt(document.getElementById('schedule-db-pages').value) || 500;
                 config.provinces = selectedScheduleProvinces.length > 0 ? selectedScheduleProvinces : null;
+            } else if (type === 'tt') {
+                config.max_results = parseInt(document.getElementById('schedule-tt-pages').value) || 500;
+                config.cnl1_codes = scheduleTtCnlCodes.length > 0 ? [...scheduleTtCnlCodes] : null;
+            } else if (type === 'mem') {
+                config.max_results = parseInt(document.getElementById('schedule-mem-pages').value) || 500;
+                config.mem_source = document.getElementById('schedule-mem-source').value;
             } else if (type === 'all') {
                 const scanTypes = [];
                 if (document.getElementById('schedule-all-gb-check').checked) scanTypes.push('gb');
                 if (document.getElementById('schedule-all-hb-check').checked) scanTypes.push('hb');
                 if (document.getElementById('schedule-all-db-check').checked) scanTypes.push('db');
+                if (document.getElementById('schedule-all-tt-check').checked) scanTypes.push('tt');
+                if (document.getElementById('schedule-all-mem-check').checked) scanTypes.push('mem');
                 config.scan_types = scanTypes;
                 config.max_results = parseInt(document.getElementById('schedule-all-max-results').value) || 500;
                 config.industries = scheduleAllIndustries.length > 0 ? scheduleAllIndustries : null;
                 config.provinces = scheduleAllProvinces.length > 0 ? scheduleAllProvinces : null;
+                config.cnl1_codes = scheduleAllTtCnlCodes.length > 0 ? [...scheduleAllTtCnlCodes] : null;
+                config.mem_source = document.getElementById('schedule-all-mem-source').value;
             }
 
             config.keyword_group = kwCurrentGroup;
@@ -4648,6 +5262,44 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             document.getElementById('schedule-all-db-clear')?.addEventListener('click', () => {
                 scheduleAllProvinces = [];
                 renderScheduleAllProvinceTags();
+            });
+            document.getElementById('schedule-all-tt-all')?.addEventListener('click', () => {
+                scheduleAllTtCnlCodes = TT_CNL1_LIST.map(([code]) => code);
+                renderTtCnlTags('schedule-all-tt-cnl-tags', scheduleAllTtCnlCodes);
+            });
+            document.getElementById('schedule-all-tt-clear')?.addEventListener('click', () => {
+                scheduleAllTtCnlCodes = [];
+                renderTtCnlTags('schedule-all-tt-cnl-tags', scheduleAllTtCnlCodes);
+            });
+
+            // 单类型 HB/DB/TT 快捷按钮
+            document.getElementById('schedule-hb-select-safety')?.addEventListener('click', () => {
+                selectedScheduleIndustries = [...industries.safety_codes];
+                renderScheduleIndustryTags();
+            });
+            document.getElementById('schedule-hb-select-all')?.addEventListener('click', () => {
+                selectedScheduleIndustries = [...industries.all_codes];
+                renderScheduleIndustryTags();
+            });
+            document.getElementById('schedule-hb-clear-all')?.addEventListener('click', () => {
+                selectedScheduleIndustries = [];
+                renderScheduleIndustryTags();
+            });
+            document.getElementById('schedule-db-select-all')?.addEventListener('click', () => {
+                selectedScheduleProvinces = [...PROVINCES];
+                renderScheduleProvinceTags();
+            });
+            document.getElementById('schedule-db-clear-all')?.addEventListener('click', () => {
+                selectedScheduleProvinces = [];
+                renderScheduleProvinceTags();
+            });
+            document.getElementById('schedule-tt-select-all')?.addEventListener('click', () => {
+                scheduleTtCnlCodes = TT_CNL1_LIST.map(([code]) => code);
+                renderTtCnlTags('schedule-tt-cnl-tags', scheduleTtCnlCodes);
+            });
+            document.getElementById('schedule-tt-clear-all')?.addEventListener('click', () => {
+                scheduleTtCnlCodes = [];
+                renderTtCnlTags('schedule-tt-cnl-tags', scheduleTtCnlCodes);
             });
         }
 

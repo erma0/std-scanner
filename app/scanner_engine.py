@@ -23,12 +23,14 @@ from app.scanner import (
     scan_db_standards, download_db_standards,
     compare_snapshot,
     compute_download_stats,
+    run_tt_pipeline,
+    run_mem_pipeline,
 )
 
 
 async def run_scan_pipeline(
-    scan_type: str,       # 'gb' | 'hb' | 'db'
-    config: dict,         # { max_results, incr, keyword_group, industries?, provinces? }
+    scan_type: str,       # 'gb' | 'hb' | 'db' | 'tt' | 'mem'
+    config: dict,         # { max_results, incr, keyword_group, industries?, provinces?, cnl1_codes? }
     task_id: str = None,  # 可选：任务 ID，用于进度追踪
     task_manager=None,    # 可选：TaskManager 实例
     progress_base: int = 0,       # 进度起始百分比
@@ -41,7 +43,7 @@ async def run_scan_pipeline(
     调用方只需指定 scan_type 和 config，无需关心内部实现差异。
 
     Args:
-        scan_type: 'gb' | 'hb' | 'db'
+        scan_type: 'gb' | 'hb' | 'db' | 'tt' | 'mem'（团体标准/应急管理部标准走独立管线）
         config: 扫描配置字典
         task_id: 任务 ID（进度追踪用）
         task_manager: TaskManager 实例
@@ -52,6 +54,22 @@ async def run_scan_pipeline(
     Returns:
         扫描到的标准列表
     """
+    # 团体标准走独立管线（httpx 直连 cms-proxy API，无 WAF）
+    if scan_type == 'tt':
+        return await run_tt_pipeline(
+            config=config, task_id=task_id, task_manager=task_manager,
+            progress_base=progress_base, progress_per_scan=progress_per_scan,
+            progress_per_download=progress_per_download,
+        )
+
+    # 应急管理部标准走独立管线（httpx 直连 HTML，无 WAF）
+    if scan_type == 'mem':
+        return await run_mem_pipeline(
+            config=config, task_id=task_id, task_manager=task_manager,
+            progress_base=progress_base, progress_per_scan=progress_per_scan,
+            progress_per_download=progress_per_download,
+        )
+
     max_results = config.get('max_results', 500)
     incr = config.get('incr', False)
     keyword_group = config.get('keyword_group', '安全生产')
@@ -60,7 +78,7 @@ async def run_scan_pipeline(
 
     _log.info(f"[ENGINE] 开始 {scan_type.upper()} 扫描: max={max_results}, incr={incr}, group={keyword_group}, state={std_state}")
 
-    type_label = {'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准'}.get(scan_type, scan_type)
+    type_label = {'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准', 'mem': '应急管理部标准'}.get(scan_type, scan_type)
 
     # === 构建进度回调 ===
     async def _on_scan_progress(pct, msg):
@@ -201,7 +219,20 @@ async def run_scan_pipeline(
     except Exception as e:
         _log.debug(f"[ENGINE] 变更追踪异常（不影响扫描）: {e}")
 
-    if scan_only or not standards:
+    # 扫描结果为空：明确标识"无符合条件标准"，跳过下载阶段
+    if not standards:
+        if task_manager and task_id:
+            state_label = std_state or '全部'
+            task_manager.update(task_id,
+                progress=progress_base + progress_per_scan + progress_per_download,
+                dl_progress=100,
+                message=f"无符合条件标准（{state_label}），跳过下载",
+                stats={'scanned': 0, 'downloaded': 0, 'success': 0, 'failed': 0, 'skipped': 0},
+                std_items=[])
+        _log.info(f"[ENGINE] {scan_type.upper()} 无符合条件标准（{std_state or '全部'}），跳过下载")
+        return standards
+
+    if scan_only:
         return standards
 
     # === 阶段2: 提取/下载 ===

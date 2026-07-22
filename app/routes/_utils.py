@@ -31,13 +31,14 @@ def launch_task(coro, name="unnamed"):
 
 def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
                                 scan_only, gb_config=None, hb_config=None,
-                                db_config=None, allow_preview=None, std_state='现行'):
-    """创建联合扫描任务（GB+HB+DB）— 每个类型独立任务，asyncio.gather 并发执行。
+                                db_config=None, tt_config=None, mem_config=None,
+                                allow_preview=None, std_state='现行'):
+    """创建联合扫描任务（GB+HB+DB+TT+MEM）— 每个类型独立任务，asyncio.gather 并发执行。
 
     供 scan_all / retry_all / 定时扫描复用。
 
     Returns:
-        (task_ids: list[str], async_fn): task_ids 为三个任务的 ID 列表，
+        (task_ids: list[str], async_fn): task_ids 为各任务 ID 列表，
         caller 将 async_fn 传给 launch_task() 执行。
     """
     from .state import task_manager
@@ -51,7 +52,11 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
         'gb': {'config': gb_config or {}, 'allow_preview': allow_preview},
         'hb': {'config': hb_config or {}},
         'db': {'config': db_config or {}},
+        'tt': {'config': tt_config or {}},
+        'mem': {'config': mem_config or {}},
     }
+
+    _type_label = {'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准', 'mem': '应急管理部标准'}
 
     task_ids = []
     for st in scan_types:
@@ -61,7 +66,7 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
             "task_id": tid,
             "status": "running",
             "progress": 0,
-            "message": f"开始扫描{'国家标准' if st == 'gb' else '行业标准' if st == 'hb' else '地方标准'}",
+            "message": f"开始扫描{_type_label.get(st, st)}",
             "stats": {"scanned": 0, "downloaded": 0, "success": 0, "failed": 0, "skipped": 0},
             "start_time": time.time(),
             "std_type": st,
@@ -87,7 +92,12 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
                 'std_state': std_state,
                 'industries': tc.get('config', {}).get('industries'),
                 'provinces': tc.get('config', {}).get('provinces'),
+                'cnl1_codes': tc.get('config', {}).get('cnl1_codes'),
             }
+            # MEM 透传 source（bz 标准文本 | gz 规章 | all 两源并发）
+            if st == 'mem':
+                mem_src = tc.get('config', {}).get('source', 'bz')
+                config['source'] = mem_src if mem_src in ('bz', 'gz', 'all') else 'bz'
             if st == 'gb' and allow_preview is not None:
                 config['allow_preview'] = allow_preview
 
@@ -97,6 +107,18 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
                     task_id=tid, task_manager=task_manager,
                 )
 
+                # 扫描结果为空：标识"无符合条件标准"，不计入下载统计也不发完成通知
+                if not standards:
+                    state_label = std_state or '全部'
+                    task_manager.update(tid,
+                        stats={'scanned': 0, 'downloaded': 0, 'success': 0, 'failed': 0, 'skipped': 0},
+                        std_items=[],
+                        progress=100, status="completed",
+                        end_time=time.time(),
+                        message=f"无符合条件标准（{state_label}），跳过下载")
+                    _log.info(f"联合子任务 {tid}: 无符合条件标准（{state_label}），跳过下载")
+                    return {'ok': True, 'st': st, 'cnt': 0, 'empty': True}
+
                 # 统计下载结果
                 stats = compute_download_stats(standards)
 
@@ -104,7 +126,7 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
                     stats=stats, std_items=standards,
                     progress=100, status="completed",
                     end_time=time.time(),
-                    message=f"{'国家标准' if st == 'gb' else '行业标准' if st == 'hb' else '地方标准'}下载完成({len(standards)}条)")
+                    message=f"{_type_label.get(st, st)}下载完成({len(standards)}条)")
 
                 # 发送通知
                 task = task_manager.get(tid)
@@ -127,16 +149,26 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
             *[_run_one(st, tid) for st, tid in zip(scan_types, task_ids)]
         )
 
-        # 汇总日志
+        # 汇总日志：区分 完成任务 / 空任务（无符合条件标准） / 失败任务
         ok_types = []
+        empty_types = []
         fail_types = []
         for r in results:
-            if r.get('ok'):
-                ok_types.append(f"{r['st']}:{r['cnt']}条")
-            else:
+            if not r.get('ok'):
                 fail_types.append(f"{r['st']}:{r.get('error', '')}")
+            elif r.get('empty'):
+                empty_types.append(r['st'])
+            else:
+                ok_types.append(f"{r['st']}:{r['cnt']}条")
 
-        _log.info(f"联合扫描完成: 成功={ok_types}, 失败={fail_types}")
+        summary_parts = []
+        if ok_types:
+            summary_parts.append(f"成功={ok_types}")
+        if empty_types:
+            summary_parts.append(f"无符合条件标准={empty_types}")
+        if fail_types:
+            summary_parts.append(f"失败={fail_types}")
+        _log.info(f"联合扫描完成: {', '.join(summary_parts) if summary_parts else '全部空'}")
         task_manager.save_all()
 
     return task_ids, _scan_all

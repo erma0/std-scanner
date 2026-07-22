@@ -127,6 +127,8 @@ def validate_config(config):
     concurrent = download.get("concurrent", 1)
     if not isinstance(concurrent, int) or concurrent < 1:
         errors.append("并发数必须大于等于1")
+    elif concurrent > 10:
+        errors.append("并发数必须小于等于10")
 
     # 验证日志配置
     log_cfg = config.get("logging", {})

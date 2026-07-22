@@ -9,14 +9,11 @@ import logging
 from .state import task_manager
 from ._utils import launch_task as _launch_task, create_combined_scan_tasks
 from .scan import _create_scan_task
-from app.keywords import set_active_group
-from app.scanner.utils import compute_download_stats, make_filename
-from app.scanner.hb_scan import download_hb_with_captcha, CopyrightError
-from app.scanner.download import download_with_captcha
-from app.scanner.download_helpers import fetch_and_save_pdf
-from app.scanner.gb_scan import extract_hcno
-from app.dedup import get_existing_files
-from config.settings import get_output_dir, get_delay
+
+# 以下模块导入耗时较长（scanner/captcha/dedup 链），延迟到首次使用时：
+# - app.keywords, app.scanner.utils, app.scanner.hb_scan, app.scanner.download
+# - app.scanner.download_helpers, app.scanner.gb_scan, app.dedup
+# - config.settings (get_output_dir, get_delay)
 
 _log = logging.getLogger('std_scraper')
 
@@ -25,6 +22,8 @@ router = APIRouter(prefix="", tags=["Tasks"])
 
 async def _do_retry_one(item, std_type, output_dir, existing):
     """重试下载单条标准，返回 (ok, msg)"""
+    from app.scanner.utils import make_filename
+    from app.scanner.download_helpers import fetch_and_save_pdf
     filename = make_filename(item.get('stdCode') or item.get('code', ''),
                              item.get('stdName') or item.get('name', ''))
     filepath = output_dir / filename
@@ -34,6 +33,8 @@ async def _do_retry_one(item, std_type, output_dir, existing):
         return True, 'skipped_existing'
 
     if std_type == 'gb':
+        from app.scanner.gb_scan import extract_hcno
+        from app.scanner.download import download_with_captcha
         hcno = item.get('hcno')
         if not hcno:
             await extract_hcno([item])
@@ -55,6 +56,7 @@ async def _do_retry_one(item, std_type, output_dir, existing):
             return False, 'failed'
 
     else:
+        from app.scanner.hb_scan import download_hb_with_captcha, CopyrightError
         pk = item.get('pk')
         site_type = item.get('siteType', std_type)
         if not pk:
@@ -166,7 +168,7 @@ async def retry_task_api(task_id: str):
     incr = task.get('incr', False)
     scan_only = task.get('scan_only', False)
 
-    if std_type in ('gb', 'hb', 'db'):
+    if std_type in ('gb', 'hb', 'db', 'tt'):
         config = {
             'max_results': max_results,
             'incr': incr,
@@ -174,6 +176,7 @@ async def retry_task_api(task_id: str):
             'scan_only': scan_only,
             'industries': task.get('industries'),
             'provinces': task.get('provinces'),
+            'cnl1_codes': task.get('cnl1_codes'),
         }
         result = _create_scan_task(
             scan_type=std_type,
@@ -181,7 +184,7 @@ async def retry_task_api(task_id: str):
             config=config,
         )
     elif std_type == 'all':
-        # all 类型已废弃，改为创建三个独立任务
+        # all 类型已废弃，改为创建独立任务（保留原 scan_types）
         scan_types = task.get('scan_types', ['gb', 'hb', 'db'])
         task_ids, scan_fn = create_combined_scan_tasks(
             scan_types=scan_types,
@@ -191,6 +194,7 @@ async def retry_task_api(task_id: str):
             scan_only=scan_only,
             hb_config={'industries': task.get('industries')},
             db_config={'provinces': task.get('provinces')},
+            tt_config={'cnl1_codes': task.get('cnl1_codes')},
         )
         _launch_task(scan_fn(), "retry-combined")
         return {"success": True, "new_task_ids": task_ids}
@@ -243,6 +247,11 @@ async def set_task_priority(task_id: str, request: Request):
 @router.post("/api/task/{task_id}/retry-item/{item_index}")
 async def retry_single_item(task_id: str, item_index: int):
     """重试下载单条标准（不重新扫描，仅重新下载该条）"""
+    from app.keywords import set_active_group
+    from app.scanner.utils import compute_download_stats
+    from app.dedup import get_existing_files
+    from config.settings import get_output_dir
+
     task = task_manager.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
@@ -278,6 +287,11 @@ async def retry_single_item(task_id: str, item_index: int):
 @router.post("/api/task/{task_id}/retry-failed")
 async def retry_all_failed(task_id: str):
     """批量重试所有下载失败的标准"""
+    from app.keywords import set_active_group
+    from app.scanner.utils import compute_download_stats, make_filename
+    from app.dedup import get_existing_files
+    from config.settings import get_output_dir, get_delay
+
     task = task_manager.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")

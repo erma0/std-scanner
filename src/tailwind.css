@@ -1,6 +1,13 @@
 @import "tailwindcss";
 @source "../ui.html";
 
+/* 显式声明 JS 动态拼接中使用、但未在静态 class 属性中出现的工具类。
+   Tailwind v4 默认只扫描静态 class 属性，模板字符串里的类名会被漏掉。 */
+@source inline("bg-purple-50 bg-purple-100 bg-purple-500 bg-purple-600");
+@source inline("text-purple-500 text-purple-600 text-purple-700");
+@source inline("border-purple-100 border-purple-200 border-purple-500");
+@source inline("hover:bg-purple-100 hover:bg-purple-200 hover:bg-purple-600");
+
 /* 自定义主题变量 */
 @theme {
   --color-primary: #3b82f6;

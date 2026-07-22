@@ -484,5 +484,33 @@ class SchedulerManager:
         return True
 
 
-task_manager = TaskManager()
-scheduler_manager = SchedulerManager()
+class _LazyProxy:
+    """懒加载代理：首次访问时才实例化目标对象，避免模块导入时的数据库初始化开销。
+
+    用法：全局单例 = _LazyProxy(工厂函数)
+    首次属性访问时调用工厂函数创建实例，之后转发所有属性访问。
+    注意：仅用于方法调用 / 属性读取，不支持 isinstance 检查。
+    """
+    __slots__ = ('_factory', '_instance')
+
+    def __init__(self, factory):
+        object.__setattr__(self, '_factory', factory)
+        object.__setattr__(self, '_instance', None)
+
+    def _get_instance(self):
+        inst = object.__getattribute__(self, '_instance')
+        if inst is None:
+            factory = object.__getattribute__(self, '_factory')
+            inst = factory()
+            object.__setattr__(self, '_instance', inst)
+        return inst
+
+    def __getattr__(self, name):
+        return getattr(self._get_instance(), name)
+
+    def __setattr__(self, name, value):
+        setattr(self._get_instance(), name, value)
+
+
+task_manager = _LazyProxy(TaskManager)
+scheduler_manager = _LazyProxy(SchedulerManager)

@@ -12,13 +12,8 @@ from fastapi import APIRouter, Request
 from . import state as _state
 from config.manager import load_config, save_config
 from config.settings import get_output_dir
-from app.dedup import invalidate_existing_dirs_cache
+# app.dedup 含 watchfiles（~0.5s），延迟到 invalidate_existing_dirs_cache 首次调用时
 from app.helpers import validate_path
-
-try:
-    import webview
-except ImportError:
-    webview = None
 
 _log = logging.getLogger('std_scraper')
 
@@ -100,6 +95,7 @@ async def select_folder_api():
     """通过 pywebview 弹出系统文件夹选择对话框"""
     if not _state.pywebview_window:
         return {"success": False, "error": "pywebview 窗口未初始化，请在桌面应用中运行"}
+    import webview
 
     loop = asyncio.get_running_loop()
     future = asyncio.Future()
@@ -131,6 +127,7 @@ async def save_file_dialog_api(request: Request):
     """通过 pywebview 弹出系统文件保存对话框"""
     if not _state.pywebview_window:
         return {"success": False, "error": "pywebview 窗口未初始化，请在桌面应用中运行"}
+    import webview
 
     body = await request.json()
     default_name = body.get("default_name", "")
@@ -234,5 +231,6 @@ async def update_existing_dirs_api(dirs: List[str]):
         cfg['download'] = {}
     cfg['download']['existing_dirs'] = dirs
     save_config(cfg)
+    from app.dedup import invalidate_existing_dirs_cache
     invalidate_existing_dirs_cache()
     return {"success": True, "existing_dirs": dirs}

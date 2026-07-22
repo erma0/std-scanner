@@ -1,7 +1,7 @@
 """
 安全关键词匹配模块
 关键词组存储在 config.json 的 keyword_groups 中。
-每个组包含: keywords(匹配词), excludes(排除词), industries(行业筛选), provinces(省份筛选)
+每个组包含: keywords(匹配词), excludes(排除词)
 """
 import threading
 import time
@@ -9,7 +9,6 @@ import re
 import logging
 from typing import Dict, Set, Optional
 
-from config.settings import HB_SAFETY_CODES
 from config.manager import load_config, save_config
 
 _log = logging.getLogger('std_scraper')
@@ -64,14 +63,9 @@ _PRESET_KEYWORDS = [
 
 _PRESET_EXCLUDES = ['信息安全', '网络安全', '数据安全', '食品安全', '农产品', '饲料']
 
-_PRESET_INDUSTRIES = list(HB_SAFETY_CODES)
-_PRESET_PROVINCES = ['江苏省']
-
 PRESET_GROUP = {
     'keywords': list(_PRESET_KEYWORDS),
     'excludes': list(_PRESET_EXCLUDES),
-    'industries': list(_PRESET_INDUSTRIES),
-    'provinces': list(_PRESET_PROVINCES),
 }
 
 # ==================== 线程本地存储 ====================
@@ -90,7 +84,7 @@ _matcher_cache_lock = threading.Lock()
 
 def _empty_group() -> dict:
     """新建组的空模板"""
-    return {'keywords': [], 'excludes': [], 'industries': [], 'provinces': []}
+    return {'keywords': [], 'excludes': []}
 
 
 class SafetyMatcher:
@@ -216,7 +210,17 @@ def get_all_groups() -> dict:
 
 def save_groups(groups: dict):
     config = load_config()
-    config['keyword_groups'] = groups
+    # 兼容清理：剥离历史遗留的 industries/provinces 字段（已迁移至扫描面板独立持久化）
+    cleaned = {}
+    for name, grp in groups.items():
+        if isinstance(grp, dict):
+            cleaned[name] = {
+                'keywords': grp.get('keywords', []),
+                'excludes': grp.get('excludes', []),
+            }
+        else:
+            cleaned[name] = grp
+    config['keyword_groups'] = cleaned
     save_config(config)
     invalidate_groups_cache()
 
@@ -262,11 +266,16 @@ def is_safety(text: str, std_type: str = None) -> bool:
     高性能版本：使用编译好的正则表达式。
     匹配顺序：①排除词 → ②匹配词
     所有关键词对 GB/HB/DB 所有类型标准都通用。
+
+    特殊组 '__all__'：跳过关键词过滤，全部命中（用于下载某行业/类型的全部标准）。
     """
     if not text:
         return False
-    t = text.replace('<sacinfo>', '').replace('</sacinfo>', '')
     group_name = getattr(_tls, 'active_group', '安全生产')
+    # __all__ 虚拟组：不进入关键词匹配，直接放行所有标准
+    if group_name == '__all__':
+        return True
+    t = text.replace('<sacinfo>', '').replace('</sacinfo>', '')
     
     try:
         matcher = _get_matcher(group_name)

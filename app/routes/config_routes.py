@@ -76,7 +76,7 @@ async def get_industries():
 
 @router.get("/api/keyword_groups")
 async def get_keyword_groups():
-    """获取所有关键词组（含 keywords/excludes/industries/provinces）"""
+    """获取所有关键词组（含 keywords/excludes）"""
     groups = get_all_groups()
     summary = {}
     for name, grp in groups.items():
@@ -84,8 +84,6 @@ async def get_keyword_groups():
             summary[name] = {
                 'keywords': len(grp.get('keywords', [])),
                 'excludes': len(grp.get('excludes', [])),
-                'industries': len(grp.get('industries', [])),
-                'provinces': len(grp.get('provinces', [])),
             }
         else:
             summary[name] = {'keywords': len(grp) if isinstance(grp, list) else 0}
@@ -145,7 +143,7 @@ async def update_keywords_api(request: Request):
         grp['keywords'] = keywords
         groups['安全生产'] = grp
     else:
-        groups['安全生产'] = {'keywords': keywords, 'excludes': [], 'industries': [], 'provinces': []}
+        groups['安全生产'] = {'keywords': keywords, 'excludes': []}
     save_groups(groups)
     return {"success": True, "count": len(keywords)}
 
