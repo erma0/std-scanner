@@ -3,7 +3,11 @@
 line-length = 120
 
 [lint]
+# 仅启用 E（pycodestyle errors）和 F（pyflakes）规则
+# ruff 0.16.0 起默认规则集扩展到 413 条，显式 select 避免引入过多风格类规则
+select = ["E", "F"]
 # E402: 模块导入不在文件顶部（__init__.py 有意延迟导入以避免循环依赖）
+# E501: 行过长（项目历史代码存在长行，后续逐步优化）
 # E701: 多语句一行（简洁的 if/except 单行写法）
 # E741: 模糊变量名（如 l, I）
-ignore = ["E402", "E701", "E741"]
+ignore = ["E402", "E501", "E701", "E741"]
