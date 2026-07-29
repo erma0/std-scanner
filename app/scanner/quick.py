@@ -78,7 +78,7 @@ async def quick_download(query):
     filepath = out_dir / filename
 
     existing = get_existing_files()
-    if filename in existing:
+    if filename.lower() in existing:
         _log.info(f"[SKIP] 已存在: {filepath}")
         return
 
@@ -169,7 +169,7 @@ async def quick_download_web(query, std_type='国家标准', max_results=5):
         _log.info(f"[{i+1}/{len(to_download)}] 处理: {code} {name}")
 
         filename = make_filename(code, name)
-        if filename in existing:
+        if filename.lower() in existing:
             _log.info(f"   [SKIP] 已存在: {filename}")
             continue
 

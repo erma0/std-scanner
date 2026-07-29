@@ -107,16 +107,17 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
                     task_id=tid, task_manager=task_manager,
                 )
 
-                # 扫描结果为空：标识"无符合条件标准"，不计入下载统计也不发完成通知
+                # 扫描结果为空：区分"无新增（增量命中）"和"无符合条件标准"
                 if not standards:
                     state_label = std_state or '全部'
+                    empty_msg = '无新增标准' if incr else '无符合条件标准'
                     task_manager.update(tid,
                         stats={'scanned': 0, 'downloaded': 0, 'success': 0, 'failed': 0, 'skipped': 0},
                         std_items=[],
                         progress=100, status="completed",
                         end_time=time.time(),
-                        message=f"无符合条件标准（{state_label}），跳过下载")
-                    _log.info(f"联合子任务 {tid}: 无符合条件标准（{state_label}），跳过下载")
+                        message=f"{empty_msg}（{state_label}），跳过下载")
+                    _log.info(f"联合子任务 {tid}: {empty_msg}（{state_label}），跳过下载")
                     return {'ok': True, 'st': st, 'cnt': 0, 'empty': True}
 
                 # 统计下载结果

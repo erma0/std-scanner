@@ -29,7 +29,7 @@ DEFAULT_MAX_NETWORK_RETRIES = 3
 DEFAULT_MAX_PDF_RETRIES = 3
 
 
-def _unified_captcha_download(dl_config, max_ocr_retries=DEFAULT_MAX_OCR_RETRIES, max_network_retries=DEFAULT_MAX_NETWORK_RETRIES, client=None):
+def _unified_captcha_download(dl_config, max_ocr_retries=DEFAULT_MAX_OCR_RETRIES, max_network_retries=DEFAULT_MAX_NETWORK_RETRIES, client=None, reason_out=None):
     """统一的验证码下载流程。
 
     区分三类错误：
@@ -47,6 +47,8 @@ def _unified_captcha_download(dl_config, max_ocr_retries=DEFAULT_MAX_OCR_RETRIES
         max_network_retries: 网络错误最大重试次数（独立计数）
         client: 可选，外部传入的独立 httpx.Client（并发场景使用）。
                 None 时使用全局共享 client。传入时调用方负责关闭。
+        reason_out: 可选 dict，函数在失败时写入 'reason'(简短中文原因) 和 'detail'(统计详情)
+                    调用方可读取以展示具体失败原因
     Returns:
         pdf_data (bytes) or None
     """
@@ -55,6 +57,11 @@ def _unified_captcha_download(dl_config, max_ocr_retries=DEFAULT_MAX_OCR_RETRIES
     own_client = client is not None
     if client is None:
         client = get_captcha_client(site_type)
+
+    def _set_reason(reason, detail=None):
+        if reason_out is not None:
+            reason_out['reason'] = reason
+            reason_out['detail'] = detail
 
     network_failures = 0
     pdf_failures = 0
@@ -97,12 +104,14 @@ def _unified_captcha_download(dl_config, max_ocr_retries=DEFAULT_MAX_OCR_RETRIES
                     time.sleep(get_delay())
                     continue
                 _log.warning(f"[DL-{site_type}] PDF 重试耗尽 ({pdf_failures}/{max_pdf_retries})")
+                _set_reason(f'PDF获取失败(已重试{pdf_failures}次)', dict(fail_stats))
                 return None
 
             except _NETWORK_EXCEPTIONS as e:
                 network_failures += 1
                 if network_failures > max_network_retries:
                     _log.warning(f"[DL-{site_type}] 网络重试耗尽 ({network_failures}/{max_network_retries}): {e}")
+                    _set_reason(f'网络错误({type(e).__name__}, 已重试{network_failures}次)', dict(fail_stats))
                     return None
                 _log.debug(f"[DL-{site_type}] 网络错误，重试 {network_failures}/{max_network_retries}: {e}")
                 time.sleep(get_delay() * 2)
@@ -116,6 +125,14 @@ def _unified_captcha_download(dl_config, max_ocr_retries=DEFAULT_MAX_OCR_RETRIES
 
         _log.warning(f"[DL-{site_type}] 下载失败：OCR重试耗尽 ({ocr_attempts}/{max_ocr_retries}) "
                      f"统计: {fail_stats}")
+        # 根据 fail_stats 推断主要原因，给出简洁友好的提示
+        if fail_stats['verify_fail'] >= fail_stats['ocr_empty'] and fail_stats['verify_fail'] > 0:
+            main_reason = f'验证码识别失败({fail_stats["verify_fail"]}次校验未通过)'
+        elif fail_stats['ocr_empty'] > 0:
+            main_reason = f'验证码识别异常({fail_stats["ocr_empty"]}次返回空)'
+        else:
+            main_reason = f'验证码下载超时(已尝试{ocr_attempts}次)'
+        _set_reason(main_reason, dict(fail_stats))
         return None
     finally:
         # 仅关闭外部传入的独立 client；共享 client 由 close_captcha_clients 统一管理
@@ -181,7 +198,7 @@ def _gb_pdf_getter(client, hcno):
     return None
 
 
-def download_with_captcha(hcno, client=None):
+def download_with_captcha(hcno, client=None, reason_out=None):
     """通过验证码下载国标 PDF（适配 openstd.samr.gov.cn 新接口）
 
     流程：
@@ -193,10 +210,11 @@ def download_with_captcha(hcno, client=None):
     Args:
         hcno: 标准 hcno 标识
         client: 可选，外部传入的独立 httpx.Client（并发场景使用，调用方负责关闭）
+        reason_out: 可选 dict，失败时写入 'reason' 和 'detail' 字段（调用方读取展示）
     """
     return _unified_captcha_download({
         'site_type': 'gb',
         'captcha_getter': lambda c: _gb_captcha_getter(c, hcno),
         'captcha_verifier': _gb_captcha_verifier,
         'pdf_getter': lambda c: _gb_pdf_getter(c, hcno),
-    }, client=client)
+    }, client=client, reason_out=reason_out)

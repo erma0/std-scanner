@@ -1176,6 +1176,17 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             <label class="text-sm font-medium text-gray-700">采集</label>
                             <input type="number" id="schedule-gb-pages" value="500" min="1" max="10000" class="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-center">
                             <span class="text-sm text-gray-500">条</span>
+                            <span class="text-gray-300 mx-1">|</span>
+                            <span class="text-sm text-gray-600">状态</span>
+                            <select id="schedule-gb-state" class="px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                <option value="现行" selected>现行</option>
+                                <option value="即将实施">即将实施</option>
+                                <option value="废止">废止</option>
+                                <option value="">全部</option>
+                            </select>
+                            <span class="text-gray-300 mx-1">|</span>
+                            <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="schedule-gb-scan-only" class="w-4 h-4 text-blue-500 rounded mr-1.5">仅扫描</label>
+                            <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="schedule-gb-incr" class="w-4 h-4 text-blue-500 rounded mr-1.5" checked>增量</label>
                         </div>
                     </div>
                     <div id="schedule-hb-config" class="hidden">
@@ -1193,6 +1204,17 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                 <label class="text-sm font-medium text-gray-700">采集</label>
                                 <input type="number" id="schedule-hb-pages" value="500" min="1" max="10000" class="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-center">
                                 <span class="text-sm text-gray-500">条</span>
+                                <span class="text-gray-300 mx-1">|</span>
+                                <span class="text-sm text-gray-600">状态</span>
+                                <select id="schedule-hb-state" class="px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                    <option value="现行" selected>现行</option>
+                                    <option value="即将实施">即将实施</option>
+                                    <option value="废止">废止</option>
+                                    <option value="">全部</option>
+                                </select>
+                                <span class="text-gray-300 mx-1">|</span>
+                                <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="schedule-hb-scan-only" class="w-4 h-4 text-blue-500 rounded mr-1.5">仅扫描</label>
+                                <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="schedule-hb-incr" class="w-4 h-4 text-blue-500 rounded mr-1.5" checked>增量</label>
                             </div>
                         </div>
                     </div>
@@ -1210,6 +1232,17 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                 <label class="text-sm font-medium text-gray-700">采集</label>
                                 <input type="number" id="schedule-db-pages" value="500" min="1" max="10000" class="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-center">
                                 <span class="text-sm text-gray-500">条</span>
+                                <span class="text-gray-300 mx-1">|</span>
+                                <span class="text-sm text-gray-600">状态</span>
+                                <select id="schedule-db-state" class="px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                    <option value="现行" selected>现行</option>
+                                    <option value="即将实施">即将实施</option>
+                                    <option value="废止">废止</option>
+                                    <option value="">全部</option>
+                                </select>
+                                <span class="text-gray-300 mx-1">|</span>
+                                <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="schedule-db-scan-only" class="w-4 h-4 text-blue-500 rounded mr-1.5">仅扫描</label>
+                                <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="schedule-db-incr" class="w-4 h-4 text-blue-500 rounded mr-1.5" checked>增量</label>
                             </div>
                         </div>
                     </div>
@@ -1225,8 +1258,19 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             </div>
                             <div class="flex items-center gap-3 flex-wrap">
                                 <label class="text-sm font-medium text-gray-700">采集</label>
-                                <input type="number" id="schedule-tt-pages" value="500" min="1" max="10000" class="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-center">
+                                <input type="number" id="schedule-tt-pages" value="200" min="1" max="10000" class="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-center">
                                 <span class="text-sm text-gray-500">条</span>
+                                <span class="text-gray-300 mx-1">|</span>
+                                <span class="text-sm text-gray-600">状态</span>
+                                <select id="schedule-tt-state" class="px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                    <option value="现行" selected>现行</option>
+                                    <option value="即将实施">即将实施</option>
+                                    <option value="废止">废止</option>
+                                    <option value="全部">全部</option>
+                                </select>
+                                <span class="text-gray-300 mx-1">|</span>
+                                <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="schedule-tt-scan-only" class="w-4 h-4 text-blue-500 rounded mr-1.5">仅扫描</label>
+                                <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="schedule-tt-incr" class="w-4 h-4 text-blue-500 rounded mr-1.5" checked>增量</label>
                             </div>
                         </div>
                     </div>
@@ -1242,6 +1286,16 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             <label class="text-sm font-medium text-gray-700">采集</label>
                             <input type="number" id="schedule-mem-pages" value="500" min="1" max="10000" class="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-center">
                             <span class="text-sm text-gray-500">条</span>
+                            <span class="text-gray-300 mx-1">|</span>
+                            <span class="text-sm text-gray-600">状态</span>
+                            <select id="schedule-mem-state" class="px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                <option value="现行" selected>现行</option>
+                                <option value="废止">废止</option>
+                                <option value="全部">全部</option>
+                            </select>
+                            <span class="text-gray-300 mx-1">|</span>
+                            <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="schedule-mem-scan-only" class="w-4 h-4 text-blue-500 rounded mr-1.5">仅扫描</label>
+                            <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="schedule-mem-incr" class="w-4 h-4 text-blue-500 rounded mr-1.5" checked>增量</label>
                         </div>
                     </div>
                     <div id="schedule-all-config" class="hidden">
@@ -1251,8 +1305,18 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                 <input type="number" id="schedule-all-max-results" value="500" min="1" max="50000" class="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-center">
                                 <span class="text-sm text-gray-500">条/类</span>
                                 <span class="text-gray-300 mx-1">|</span>
-                                <span class="text-xs text-gray-400">每类各扫描此条数</span>
+                                <span class="text-sm text-gray-600">状态</span>
+                                <select id="schedule-all-state" class="px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                    <option value="现行" selected>现行</option>
+                                    <option value="即将实施">即将实施</option>
+                                    <option value="废止">废止</option>
+                                    <option value="">全部</option>
+                                </select>
+                                <span class="text-gray-300 mx-1">|</span>
+                                <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="schedule-all-scan-only" class="w-4 h-4 text-blue-500 rounded mr-1.5">仅扫描</label>
+                                <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="schedule-all-incr" class="w-4 h-4 text-blue-500 rounded mr-1.5" checked>增量</label>
                             </div>
+                            <p class="text-xs text-gray-400 -mt-2">状态筛选对所有标准类型统一生效（现行/即将实施/废止/全部），每类各扫描此条数</p>
 
                             <div class="space-y-3">
                                 <div class="collapse-card flex items-start p-3 bg-blue-50 rounded-lg border border-blue-100">
@@ -3901,7 +3965,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 const resp = await fetch(`${API_BASE}/task/${taskId}/retry-item/${itemIndex}`, { method: 'POST' });
                 const data = await resp.json();
                 if (data.success) {
-                    showToast(data.message || '操作完成', data.status === 'downloaded' ? 'success' : 'warning');
+                    // data.ok=true 表示下载成功；status='skipped_existing' 也算成功
+                    const toastType = data.ok ? 'success' : 'warning';
+                    showToast(data.message || '操作完成', toastType);
                     // 清除详情缓存，下次展开时重新拉取
                     delete detailCache[taskId];
                     delete detailLastFetch[taskId];
@@ -3920,8 +3986,17 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 const resp = await fetch(`${API_BASE}/task/${taskId}/retry-failed`, { method: 'POST' });
                 const data = await resp.json();
                 if (data.success) {
-                    showToast(`批量重试完成: ${data.succeeded} 成功, ${data.failed} 失败`,
-                        data.succeeded > 0 ? 'success' : 'warning');
+                    // 构造友好提示：成功/失败计数 + 主要失败原因
+                    let msg = `批量重试完成: ${data.succeeded} 成功, ${data.failed} 失败`;
+                    if (data.fail_reasons && Object.keys(data.fail_reasons).length > 0) {
+                        const topReasons = Object.entries(data.fail_reasons)
+                            .sort((a, b) => b[1] - a[1])
+                            .slice(0, 3)
+                            .map(([r, c]) => `${r}(${c}条)`)
+                            .join('；');
+                        msg += `\n主要原因: ${topReasons}`;
+                    }
+                    showToast(msg, data.succeeded > 0 ? 'success' : 'warning');
                     delete detailCache[taskId];
                     delete detailLastFetch[taskId];
                     // SSE 会推送 task_update，无需 loadTasks
@@ -3967,10 +4042,12 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 'no_fulltext':      { text: '无全文', cls: 'text-gray-400', icon: 'fa-file-o' },
                 'no_hcno':          { text: '未发布', cls: 'text-yellow-500', icon: 'fa-clock-o' },
                 'downloading':      { text: '下载中', cls: 'text-blue-500 animate-pulse', icon: 'fa-spinner fa-spin' },
-                'failed':           { text: '网络错误', cls: 'text-red-600', icon: 'fa-times-circle' },
+                'failed':           { text: '下载失败', cls: 'text-red-600', icon: 'fa-times-circle' },
                 'failed_captcha':   { text: '验证码失败', cls: 'text-red-600', icon: 'fa-times-circle' },
-                'failed_preview':   { text: '预览拼接失败', cls: 'text-red-600', icon: 'fa-times-circle' },
-                'failed_hcno':      { text: '无法提取hcno', cls: 'text-red-600', icon: 'fa-times-circle' },
+                'failed_preview':   { text: '预览失败', cls: 'text-red-600', icon: 'fa-times-circle' },
+                'failed_hcno':      { text: 'hcno异常', cls: 'text-red-600', icon: 'fa-times-circle' },
+                'failed_no_hcno':   { text: '未发布', cls: 'text-yellow-500', icon: 'fa-clock-o' },
+                'failed_no_pk':     { text: '无标识', cls: 'text-gray-400', icon: 'fa-question-circle' },
             };
             if (!dlStatus) return { text: '待下载', cls: 'text-yellow-500', icon: 'fa-clock-o' };
             if (map[dlStatus]) return map[dlStatus];
@@ -4016,8 +4093,13 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     const isFailed = s.dlStatus === 'failed' || (s.dlStatus && (s.dlStatus.startsWith('failed_') || s.dlStatus.startsWith('error:')));
                     const isPending = !s.dlStatus;
                     const lbl = getDlStatusLabel(s.dlStatus);
-                    const dlTooltip = s.dlStatus && (s.dlStatus.startsWith('failed') || s.dlStatus.startsWith('error'))
-                        ? `${lbl.text} (${s.dlStatus})` : lbl.text;
+                    // 失败时优先展示 failReason（具体原因），其次展示状态码
+                    let dlTooltip = lbl.text;
+                    if (s.failReason) {
+                        dlTooltip = `${lbl.text}: ${s.failReason}`;
+                    } else if (s.dlStatus && (s.dlStatus.startsWith('failed') || s.dlStatus.startsWith('error'))) {
+                        dlTooltip = `${lbl.text} (${s.dlStatus})`;
+                    }
                     const dlBadge = `<span class="${lbl.cls}" title="${dlTooltip}"><i class="fa ${lbl.icon}"></i><span class="ml-0.5 text-[9px]">${lbl.text}</span></span>`;
 
                     const retryBtn = (isFailed || isPending) ? `<button class="ml-1 text-[10px] text-cyan-500 hover:text-cyan-700" onclick="event.stopPropagation();retrySingleItem('${task.task_id}', ${globalIdx})" title="${isFailed ? '重试下载' : '下载'}"><i class="fa fa-${isFailed ? 'refresh' : 'download'}"></i></button>` : '';
@@ -4287,7 +4369,14 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     if (!dlCell) continue;
                     const isFailed = s.dlStatus === 'failed' || (s.dlStatus && (s.dlStatus.startsWith('failed_') || s.dlStatus.startsWith('error:')));
                     const lbl = getDlStatusLabel(s.dlStatus);
-                    const newIcon = `<span class="${lbl.cls}" title="${lbl.text}"><i class="fa ${lbl.icon}"></i><span class="ml-0.5 text-[9px]">${lbl.text}</span></span>`;
+                    // 失败时优先展示 failReason（具体原因），与初次渲染逻辑保持一致
+                    let dlTooltip = lbl.text;
+                    if (s.failReason) {
+                        dlTooltip = `${lbl.text}: ${s.failReason}`;
+                    } else if (s.dlStatus && (s.dlStatus.startsWith('failed') || s.dlStatus.startsWith('error'))) {
+                        dlTooltip = `${lbl.text} (${s.dlStatus})`;
+                    }
+                    const newIcon = `<span class="${lbl.cls}" title="${dlTooltip}"><i class="fa ${lbl.icon}"></i><span class="ml-0.5 text-[9px]">${lbl.text}</span></span>`;
                     const retryBtnHtml = (isFailed || !s.dlStatus) ? `<button class="ml-1 text-[10px] text-cyan-500 hover:text-cyan-700" onclick="event.stopPropagation();retrySingleItem('${task.task_id}', ${globalIdx})" title="${isFailed ? '重试下载' : '下载'}"><i class="fa fa-${isFailed ? 'refresh' : 'download'}"></i></button>` : '';
                     const newContent = newIcon + retryBtnHtml;
                     if (dlCell.innerHTML !== newContent) dlCell.innerHTML = newContent;
@@ -4657,8 +4746,12 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
         function openScheduleModal(jobId = null) {
             editingScheduleId = jobId;
             selectedScheduleIndustries = [];
-            selectedScheduleProvinces = [];
+            // 与主面板默认值统一：DB 单类型默认选中"江苏省"
+            selectedScheduleProvinces = ['江苏省'];
             scheduleTtCnlCodes = [];
+            // 联合扫描默认值同步主面板（GB/HB/DB 勾选，TT/MEM 不勾选；DB 默认江苏省）
+            scheduleAllIndustries = [];
+            scheduleAllProvinces = ['江苏省'];
             scheduleAllTtCnlCodes = [];
 
             const modal = document.getElementById('schedule-modal');
@@ -4686,17 +4779,33 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
         function resetScheduleForm() {
             document.getElementById('schedule-name').value = '';
-            document.getElementById('schedule-type').value = 'gb';
+            // 与主面板默认值统一：默认"联合扫描"（all）
+            document.getElementById('schedule-type').value = 'all';
             document.getElementById('schedule-gb-pages').value = 500;
             document.getElementById('schedule-hb-pages').value = 500;
             document.getElementById('schedule-db-pages').value = 500;
-            document.getElementById('schedule-tt-pages').value = 500;
+            // TT 默认 200，与主面板一致
+            document.getElementById('schedule-tt-pages').value = 200;
             document.getElementById('schedule-mem-pages').value = 500;
             document.getElementById('schedule-mem-source').value = 'bz';
             document.getElementById('schedule-all-mem-source').value = 'bz';
+            // 状态/仅扫描/增量 默认值（与主面板一致：现行 / 仅扫描关 / 增量开）
+            ['gb', 'hb', 'db', 'tt', 'mem', 'all'].forEach(t => {
+                const stateEl = document.getElementById(`schedule-${t}-state`);
+                if (stateEl) stateEl.value = '现行';
+                const scanOnlyEl = document.getElementById(`schedule-${t}-scan-only`);
+                if (scanOnlyEl) scanOnlyEl.checked = false;
+                const incrEl = document.getElementById(`schedule-${t}-incr`);
+                if (incrEl) incrEl.checked = true;
+            });
             scheduleTtCnlCodes = [];
             scheduleAllTtCnlCodes = [];
+            // 联合扫描默认勾选与主面板一致：GB/HB/DB 勾选，TT/MEM 不勾选
+            document.getElementById('schedule-all-gb-check').checked = true;
+            document.getElementById('schedule-all-hb-check').checked = true;
+            document.getElementById('schedule-all-db-check').checked = true;
             document.getElementById('schedule-all-tt-check').checked = false;
+            document.getElementById('schedule-all-mem-check').checked = false;
             scheduleFreq = 'daily';
             scheduleWeekdays = [1];
             scheduleMonthdays = [1];
@@ -4726,22 +4835,46 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                         document.getElementById('schedule-enabled').checked = job.enabled;
 
                         const config = job.config || {};
+                        // 回填 状态/仅扫描/增量（旧任务无此字段时使用主面板默认值）
+                        const applyCommon = (t, defaultState = '现行') => {
+                            const stateEl = document.getElementById(`schedule-${t}-state`);
+                            if (stateEl) {
+                                const sv = config.std_state;
+                                // 兼容旧任务：未设置或值非法时使用默认值
+                                if (sv !== undefined && sv !== null && Array.from(stateEl.options).some(o => o.value === sv)) {
+                                    stateEl.value = sv;
+                                } else {
+                                    stateEl.value = defaultState;
+                                }
+                            }
+                            const soEl = document.getElementById(`schedule-${t}-scan-only`);
+                            if (soEl) soEl.checked = config.scan_only === true;
+                            const icEl = document.getElementById(`schedule-${t}-incr`);
+                            // incr 未设置时默认 true（与主面板一致）
+                            if (icEl) icEl.checked = config.incr !== false;
+                        };
                         if (job.type === 'gb') {
                             document.getElementById('schedule-gb-pages').value = config.max_results || 500;
+                            applyCommon('gb');
                         } else if (job.type === 'hb') {
                             document.getElementById('schedule-hb-pages').value = config.max_results || 500;
                             selectedScheduleIndustries = config.industries || [];
+                            applyCommon('hb');
                         } else if (job.type === 'db') {
                             document.getElementById('schedule-db-pages').value = config.max_results || 500;
                             selectedScheduleProvinces = config.provinces || [];
+                            applyCommon('db');
                         } else if (job.type === 'tt') {
-                            document.getElementById('schedule-tt-pages').value = config.max_results || 500;
+                            // TT 默认 200，与主面板一致
+                            document.getElementById('schedule-tt-pages').value = config.max_results || 200;
                             scheduleTtCnlCodes = Array.isArray(config.cnl1_codes) ? [...config.cnl1_codes] : [];
+                            applyCommon('tt');
                         } else if (job.type === 'mem') {
                             document.getElementById('schedule-mem-pages').value = config.max_results || 500;
                             const memSrc = config.mem_source || config.source || 'bz';
                             const memValid = ['bz', 'gz', 'all'].includes(memSrc) ? memSrc : 'bz';
                             document.getElementById('schedule-mem-source').value = memValid;
+                            applyCommon('mem');
                         } else if (job.type === 'all') {
                             const scanTypes = config.scan_types || ['gb', 'hb', 'db'];
                             document.getElementById('schedule-all-gb-check').checked = scanTypes.includes('gb');
@@ -4756,6 +4889,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             scheduleAllIndustries = config.industries || [];
                             scheduleAllProvinces = config.provinces || [];
                             scheduleAllTtCnlCodes = Array.isArray(config.cnl1_codes) ? [...config.cnl1_codes] : [];
+                            applyCommon('all');
                         }
 
                         updateScheduleTypeConfig();
@@ -4941,20 +5075,34 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             }
 
             let config = {};
+            // 读取 状态/仅扫描/增量（与主面板选项一致）
+            const readCommon = (t) => {
+                const stateEl = document.getElementById(`schedule-${t}-state`);
+                if (stateEl) config.std_state = stateEl.value;
+                const soEl = document.getElementById(`schedule-${t}-scan-only`);
+                if (soEl) config.scan_only = soEl.checked;
+                const icEl = document.getElementById(`schedule-${t}-incr`);
+                if (icEl) config.incr = icEl.checked;
+            };
             if (type === 'gb') {
                 config.max_results = parseInt(document.getElementById('schedule-gb-pages').value) || 500;
+                readCommon('gb');
             } else if (type === 'hb') {
                 config.max_results = parseInt(document.getElementById('schedule-hb-pages').value) || 500;
                 config.industries = selectedScheduleIndustries.length > 0 ? selectedScheduleIndustries : null;
+                readCommon('hb');
             } else if (type === 'db') {
                 config.max_results = parseInt(document.getElementById('schedule-db-pages').value) || 500;
                 config.provinces = selectedScheduleProvinces.length > 0 ? selectedScheduleProvinces : null;
+                readCommon('db');
             } else if (type === 'tt') {
-                config.max_results = parseInt(document.getElementById('schedule-tt-pages').value) || 500;
+                config.max_results = parseInt(document.getElementById('schedule-tt-pages').value) || 200;
                 config.cnl1_codes = scheduleTtCnlCodes.length > 0 ? [...scheduleTtCnlCodes] : null;
+                readCommon('tt');
             } else if (type === 'mem') {
                 config.max_results = parseInt(document.getElementById('schedule-mem-pages').value) || 500;
                 config.mem_source = document.getElementById('schedule-mem-source').value;
+                readCommon('mem');
             } else if (type === 'all') {
                 const scanTypes = [];
                 if (document.getElementById('schedule-all-gb-check').checked) scanTypes.push('gb');
@@ -4968,6 +5116,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 config.provinces = scheduleAllProvinces.length > 0 ? scheduleAllProvinces : null;
                 config.cnl1_codes = scheduleAllTtCnlCodes.length > 0 ? [...scheduleAllTtCnlCodes] : null;
                 config.mem_source = document.getElementById('schedule-all-mem-source').value;
+                readCommon('all');
             }
 
             config.keyword_group = kwCurrentGroup;
@@ -5013,6 +5162,10 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
                 if (result.success) {
                     showToast('任务已触发', 'success');
+                    // 与主面板扫描按钮一致：触发后跳转到执行历史页
+                    navigateToPage('tasks');
+                } else {
+                    showToast('执行失败: ' + (result.detail || result.message || '未知错误'), 'error');
                 }
             } catch (e) {
                 showToast('执行失败: ' + (e.message || String(e)), 'error');

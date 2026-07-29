@@ -62,7 +62,15 @@ def get_existing_dirs() -> list:
 
 # ==================== 递归扫描 ====================
 def _scandir_recursive(path: str) -> set:
-    """递归扫描目录，返回所有支持去重的文件名集合（含后缀）"""
+    """递归扫描目录，返回所有支持去重的文件名集合（含后缀，统一小写）。
+
+    注：
+    1. 返回的文件名一律小写化，避免大写扩展名（如 .PDF）与程序生成
+       的 .pdf 不匹配导致去重失效（详见 XF 588-2012 案例的修复）。
+    2. 文件名会 strip 前后空格，避免历史遗留的带空格文件名（如
+       ' 煤矿安全规程.pdf'）导致去重失效、重复下载。
+    调用方比较时也必须用 filename.strip().lower()。
+    """
     result = set()
     try:
         with os.scandir(path) as it:
@@ -72,7 +80,7 @@ def _scandir_recursive(path: str) -> set:
                 elif entry.is_file(follow_symlinks=False):
                     _, ext = os.path.splitext(entry.name)
                     if ext.lower() in _DEDUP_EXTENSIONS:
-                        result.add(entry.name)
+                        result.add(entry.name.strip().lower())
     except (PermissionError, OSError):
         pass
     return result
@@ -151,11 +159,11 @@ def get_existing_files(force_refresh: bool = False) -> set:
 
 
 def add_to_existing_files_cache(filename: str):
-    """向缓存中添加新下载的文件名"""
+    """向缓存中添加新下载的文件名（统一 strip + 小写化，与扫描保持一致）"""
     global _existing_files_cache
     with _cache_lock:
         if _existing_files_cache is not None:
-            _existing_files_cache.add(filename)
+            _existing_files_cache.add(filename.strip().lower())
 
 
 # ==================== watchfiles 实时监控 ====================
@@ -192,7 +200,7 @@ def start_file_watcher():
                             fname = os.path.basename(change[1])
                             _, ext = os.path.splitext(fname)
                             if ext.lower() in _DEDUP_EXTENSIONS:
-                                _existing_files_cache.add(fname)
+                                _existing_files_cache.add(fname.strip().lower())
         except Exception as e:
             _log.warning(f"文件监控异常退出: {e}")
         finally:

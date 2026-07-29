@@ -219,17 +219,20 @@ async def run_scan_pipeline(
     except Exception as e:
         _log.debug(f"[ENGINE] 变更追踪异常（不影响扫描）: {e}")
 
-    # 扫描结果为空：明确标识"无符合条件标准"，跳过下载阶段
+    # 扫描结果为空：区分"无新增（增量命中）"和"无符合条件标准"，跳过下载阶段
     if not standards:
         if task_manager and task_id:
             state_label = std_state or '全部'
+            # incr=True 且结果为空：增量扫描命中 checkpoint，无新增数据
+            empty_msg = '无新增标准' if incr else '无符合条件标准'
             task_manager.update(task_id,
                 progress=progress_base + progress_per_scan + progress_per_download,
                 dl_progress=100,
-                message=f"无符合条件标准（{state_label}），跳过下载",
+                message=f"{empty_msg}（{state_label}），跳过下载",
                 stats={'scanned': 0, 'downloaded': 0, 'success': 0, 'failed': 0, 'skipped': 0},
                 std_items=[])
-        _log.info(f"[ENGINE] {scan_type.upper()} 无符合条件标准（{std_state or '全部'}），跳过下载")
+        _log.info(f"[ENGINE] {scan_type.upper()} 无新增标准" if incr
+                  else f"[ENGINE] {scan_type.upper()} 无符合条件标准（{std_state or '全部'}），跳过下载")
         return standards
 
     if scan_only:

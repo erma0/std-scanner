@@ -72,6 +72,31 @@ _DASH_NORMALIZE_TABLE = str.maketrans({
     '\u2012': '-',  # FIGURE DASH ‒
 })
 
+# 统一空格字符 → 半角空格（用于文件名归一化）
+# 全角空格/不间断空格/各种宽度空格 → 半角空格；零宽字符与方向标记直接删除
+# 避免标题中混入这些字符导致文件名不一致、去重失效（如 MEM 规章标题前导空格案例）
+_SPACE_NORMALIZE_TABLE = str.maketrans({
+    '\u3000': ' ',  # 全角空格 IDEOGRAPHIC SPACE
+    '\u00a0': ' ',  # 不间断空格 NO-BREAK SPACE
+    '\u2000': ' ',  # EN QUAD
+    '\u2001': ' ',  # EM QUAD
+    '\u2002': ' ',  # EN SPACE
+    '\u2003': ' ',  # EM SPACE
+    '\u2004': ' ',  # THREE-PER-EM SPACE
+    '\u2005': ' ',  # FOUR-PER-EM SPACE
+    '\u2006': ' ',  # SIX-PER-EM SPACE
+    '\u2007': ' ',  # FIGURE SPACE
+    '\u2008': ' ',  # PUNCTUATION SPACE
+    '\u2009': ' ',  # THIN SPACE
+    '\u200a': ' ',  # HAIR SPACE
+    '\u200b': '',   # 零宽空格 ZERO WIDTH SPACE
+    '\u200c': '',   # 零宽不连字 ZERO WIDTH NON-JOINER
+    '\u200d': '',   # 零宽连字 ZERO WIDTH JOINER
+    '\u200e': '',   # 从左至右标记 LEFT-TO-RIGHT MARK
+    '\u200f': '',   # 从右至左标记 RIGHT-TO-LEFT MARK
+    '\ufeff': '',   # BOM / ZERO WIDTH NO-BREAK SPACE
+})
+
 
 def normalize_code(code):
     """归一化标准编号：清理 sacinfo 标签 + 统一 dash 字符
@@ -97,9 +122,13 @@ def safe_filename(filename):
     # 统一所有 dash 变体为英文半角连字符
     filename = filename.translate(_DASH_NORMALIZE_TABLE)
 
+    # 统一空格字符：全角空格/不间断空格/各种宽度空格 → 半角空格；零宽字符直接删除
+    # 避免标题中混入这些字符导致文件名不一致、去重失效
+    filename = filename.translate(_SPACE_NORMALIZE_TABLE)
+
     # 移除控制字符（换行符、回车、制表符等）— 搜索结果可能包含 \n
     # Windows 文件名不允许这些字符，且会导致 os.replace 失败
-    filename = ''.join(c for c in filename if c >= ' ' or c in '\u3000')
+    filename = ''.join(c for c in filename if c >= ' ')
 
     invalid_chars = '<>:"/\\|?*'
     # 移除 /（不替换为 _，保持 GBT 格式），其余非法字符替换为 _
@@ -116,6 +145,10 @@ def safe_filename(filename):
     # 压缩连续空格为单个空格（避免标准名称中多空格导致文件名混乱）
     while '  ' in filename:
         filename = filename.replace('  ', ' ')
+
+    # 去除前后空格（避免文件名以空格开头/结尾导致去重失效）
+    # Windows 也会自动去除文件名末尾空格，显式 strip 保持一致
+    filename = filename.strip()
 
     # 限制长度
     if len(filename) > 150:

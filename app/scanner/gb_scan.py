@@ -183,13 +183,16 @@ async def extract_hcno(standards, on_progress=None):
             elif "newGbInfo" in resp.text:
                 # 页面有 newGbInfo 但 hcno 为空值 → 网站尚未分配，非失败
                 s['dlStatus'] = 'no_hcno'
+                s['failReason'] = '网站尚未分配 hcno（标准太新）'
                 no_hcno += 1
             else:
                 s['dlStatus'] = 'failed_hcno'
+                s['failReason'] = '详情页未找到 hcno 标识'
                 failed += 1
         except Exception as e:
             _log.debug(f"hcno 提取失败 (id={s.get('id', '?')}): {e}")
             s['dlStatus'] = 'failed_hcno'
+            s['failReason'] = f'hcno 提取异常: {type(e).__name__}'
             failed += 1
 
         if (i + 1) % 20 == 0:
@@ -319,10 +322,12 @@ async def download_phase(standards, existing=None, allow_preview_override=None, 
                     elif "newGbInfo" in resp.text:
                         # 页面有 newGbInfo 但 hcno 为空 → 网站尚未分配
                         s['dlStatus'] = 'no_hcno'
+                        s['failReason'] = '网站尚未分配 hcno（标准太新）'
                         await _report_done(s.get('stdName', ''))
                         continue
                     else:
                         s['dlStatus'] = 'failed_hcno'
+                        s['failReason'] = '详情页未找到 hcno 标识'
                         async with stats_lock:
                             stats['failed'] += 1
                         await _report_done(s.get('stdName', ''))
@@ -330,6 +335,7 @@ async def download_phase(standards, existing=None, allow_preview_override=None, 
                 except Exception as e:
                     _log.debug(f"hcno 提取失败 (id={s.get('id', '?')}): {e}")
                     s['dlStatus'] = 'failed_hcno'
+                    s['failReason'] = f'hcno 提取异常: {type(e).__name__}'
                     async with stats_lock:
                         stats['failed'] += 1
                     await _report_done(s.get('stdName', ''))
@@ -340,7 +346,7 @@ async def download_phase(standards, existing=None, allow_preview_override=None, 
 
             filename = make_filename(s['stdCode'], s['stdName'])
             filepath = output_dir / filename
-            if filename in existing:
+            if filename.lower() in existing:
                 s['dlStatus'] = 'skipped_existing'
                 async with stats_lock:
                     stats['skipped_existing'] += 1
@@ -365,16 +371,20 @@ async def download_phase(standards, existing=None, allow_preview_override=None, 
                 else:
                     if btns.copyright:
                         s['dlStatus'] = 'copyright'
+                        s['failReason'] = '标准受版权保护，不提供下载'
                     elif btns.has_preview and not allow_preview:
                         s['dlStatus'] = 'preview_disabled'
+                        s['failReason'] = '仅有预览，且预览功能已禁用'
                     else:
                         s['dlStatus'] = 'no_fulltext'
+                        s['failReason'] = '详情页无下载/预览按钮'
                     async with stats_lock:
                         stats['skipped_nodl'] += 1
                     await _report_done(s.get('stdName', ''))
             except Exception as e:
                 _log.error(f"按钮检测异常 {s.get('stdCode')}: {e}", exc_info=True)
                 s['dlStatus'] = 'failed'
+                s['failReason'] = f'按钮检测异常: {type(e).__name__}'
                 async with stats_lock:
                     stats['failed'] += 1
                 await _report_done(s.get('stdName', ''))
@@ -399,11 +409,13 @@ async def download_phase(standards, existing=None, allow_preview_override=None, 
                 _log.info(f"   {display}... DOWN")
                 # 并发任务在 executor 中创建独立 client 并下载
                 loop = asyncio.get_running_loop()
+                # 失败原因容器（下载函数写入，调用方读取展示）
+                reason_out = {}
 
                 def _dl_with_own_client():
                     client = create_captcha_client('gb')
                     try:
-                        return download_with_captcha(hcno, client=client)
+                        return download_with_captcha(hcno, client=client, reason_out=reason_out)
                     finally:
                         try:
                             client.close()
@@ -416,14 +428,16 @@ async def download_phase(standards, existing=None, allow_preview_override=None, 
                 if pdf_data:
                     s['dlStatus'] = 'downloaded'
                     s['fileSize'] = len(pdf_data)
+                    s.pop('failReason', None)
                     async with stats_lock:
                         stats['downloaded'] += 1
                     _log.info(f"[DOWN] {display} {len(pdf_data)/1024:.0f}KB")
                 else:
                     s['dlStatus'] = 'failed'
+                    s['failReason'] = reason_out.get('reason', '未知原因')
                     async with stats_lock:
                         stats['failed'] += 1
-                    _log.warning(f"[FAIL] {display} 下载失败")
+                    _log.warning(f"[FAIL] {display} 下载失败: {s['failReason']}")
                 await _report_done(s.get('stdName', ''))
 
         # 预览任务保持串行（Playwright 单浏览器实例不支持并发）
@@ -445,6 +459,7 @@ async def download_phase(standards, existing=None, allow_preview_override=None, 
                 _log.info(f"[PREV] {display} {filepath.stat().st_size/1024:.0f}KB")
             else:
                 s['dlStatus'] = 'failed_preview'
+                s['failReason'] = '预览拼接失败（PDF 过小或合成异常）'
                 async with stats_lock:
                     stats['failed'] += 1
                 _log.warning(f"[FAIL] {display} 预览失败")

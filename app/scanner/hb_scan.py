@@ -242,7 +242,7 @@ async def _download_standards(standards, log_prefix='HB-DL', on_progress=None, o
             filename = make_filename(s['stdCode'], s['stdName'])
             filepath = output_dir / filename
 
-            if filename in existing:
+            if filename.lower() in existing:
                 async with stats_lock:
                     stats['skipped_existing'] += 1
                 s['dlStatus'] = 'skipped_existing'
@@ -256,11 +256,13 @@ async def _download_standards(standards, log_prefix='HB-DL', on_progress=None, o
             try:
                 # 并发任务在 executor 中创建独立 client
                 loop = asyncio.get_running_loop()
+                # 失败原因容器（下载函数写入，调用方读取展示）
+                reason_out = {}
 
                 def _dl_with_own_client():
                     client = create_captcha_client(s['siteType'])
                     try:
-                        return download_hb_with_captcha(s['pk'], s['siteType'], client=client)
+                        return download_hb_with_captcha(s['pk'], s['siteType'], client=client, reason_out=reason_out)
                     finally:
                         try:
                             client.close()
@@ -275,12 +277,14 @@ async def _download_standards(standards, log_prefix='HB-DL', on_progress=None, o
                     async with stats_lock:
                         stats['downloaded'] += 1
                     s['dlStatus'] = 'downloaded'
+                    s.pop('failReason', None)
                     _log.info(f"   [OK] {display} ({len(pdf_data)/1024:.0f}KB)")
                 else:
                     async with stats_lock:
                         stats['failed'] += 1
                     s['dlStatus'] = 'failed'
-                    _log.warning(f"   [FAIL] {display}")
+                    s['failReason'] = reason_out.get('reason', '未知原因')
+                    _log.warning(f"   [FAIL] {display}: {s['failReason']}")
             except CopyrightError as e:
                 async with stats_lock:
                     stats['copyright'] += 1
@@ -290,6 +294,7 @@ async def _download_standards(standards, log_prefix='HB-DL', on_progress=None, o
                 async with stats_lock:
                     stats['failed'] += 1
                 s['dlStatus'] = 'failed'
+                s['failReason'] = f'{type(e).__name__}: {e}'
                 _log.error(f"   [ERR] {display}: {e}")
 
             await _report_done(s.get('stdName', ''))
@@ -339,7 +344,7 @@ async def download_hb_standards(standards, on_progress=None, on_item_done=None, 
     await _download_standards(standards, 'HB-DL', on_progress=on_progress, on_item_done=on_item_done, check_pause=check_pause)
 
 
-def download_hb_with_captcha(hb_hash, site_type='hb', client=None):
+def download_hb_with_captcha(hb_hash, site_type='hb', client=None, reason_out=None):
     """下载行业标准/地方标准 PDF
 
     实测（2026-07）：HB/DB 下载无需验证码，直接 GET /portal/download/{pk} 即可返回 PDF。
@@ -364,11 +369,17 @@ def download_hb_with_captcha(hb_hash, site_type='hb', client=None):
         hb_hash: 标准 pk（sha256 哈希）
         site_type: 'hb' | 'db'
         client: 可选，外部传入的独立 httpx.Client（并发场景使用，调用方负责关闭）
+        reason_out: 可选 dict，失败时写入 'reason' 和 'detail' 字段（调用方读取展示）
     """
     if site_type == 'hb':
         base_url = 'https://hbba.sacinfo.org.cn'
     else:
         base_url = 'https://dbba.sacinfo.org.cn'
+
+    def _set_reason(reason, detail=None):
+        if reason_out is not None:
+            reason_out['reason'] = reason
+            reason_out['detail'] = detail
 
     # client=None → 用共享 client（向后兼容）；并发场景由调用方传入独立 client
     own_client = client is not None
@@ -380,6 +391,7 @@ def download_hb_with_captcha(hb_hash, site_type='hb', client=None):
     detail_referer = {'Referer': detail_url}
 
     max_retries = 3
+    last_error = None
     try:
         for attempt in range(1, max_retries + 1):
             try:
@@ -398,6 +410,7 @@ def download_hb_with_captcha(hb_hash, site_type='hb', client=None):
                 if 'pdf' in ct.lower() or resp.content[:5] == b'%PDF-':
                     if len(resp.content) > 500:
                         return resp.content
+                    last_error = f'下载内容过小({len(resp.content)}B)'
                     _log.info(f"[HB-DL] 下载内容过小 (len={len(resp.content)}, pk={hb_hash[:16]}...)")
                 else:
                     # 下载返回空或非 PDF → 检测是否版权限制
@@ -407,6 +420,7 @@ def download_hb_with_captcha(hb_hash, site_type='hb', client=None):
                                 f"标准 {hb_hash[:16]}... 因版权/政策原因不公开全文"
                             )
                     body_preview = resp.content[:120]
+                    last_error = f'返回非PDF(ct={ct},len={len(resp.content)})'
                     _log.info(f"[HB-DL] 下载返回非PDF (ct={ct}, len={len(resp.content)}, "
                              f"body={body_preview!r}, pk={hb_hash[:16]}...)")
 
@@ -417,10 +431,12 @@ def download_hb_with_captcha(hb_hash, site_type='hb', client=None):
                 # 版权限制：不重试，直接向上抛出
                 raise
             except Exception as e:
+                last_error = f'{type(e).__name__}: {e}'
                 _log.info(f"[HB-DL] 下载异常 (尝试 {attempt}/{max_retries}, pk={hb_hash[:16]}...): {e}")
                 time.sleep(get_delay())
 
         _log.warning(f"[HB-DL] 下载失败：重试耗尽 ({max_retries}/{max_retries}, pk={hb_hash[:16]}...)")
+        _set_reason(f'重试耗尽({max_retries}次): {last_error or "未知原因"}')
         return None
     finally:
         # 仅关闭外部传入的独立 client；共享 client 由 close_captcha_clients 统一管理

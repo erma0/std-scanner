@@ -21,63 +21,133 @@ router = APIRouter(prefix="", tags=["Tasks"])
 
 
 async def _do_retry_one(item, std_type, output_dir, existing):
-    """重试下载单条标准，返回 (ok, msg)"""
+    """重试下载单条标准，返回 (ok, status, reason)
+
+    reason 为简短中文失败原因，调用方可用于 UI 展示
+    支持 GB/HB/DB/TT/MEM 五种类型
+    """
     from app.scanner.utils import make_filename
     from app.scanner.download_helpers import fetch_and_save_pdf
-    filename = make_filename(item.get('stdCode') or item.get('code', ''),
-                             item.get('stdName') or item.get('name', ''))
+
+    # TT/MEM 使用 code/name 字段，GB/HB/DB 使用 stdCode/stdName
+    code = item.get('stdCode') or item.get('code', '')
+    name = item.get('stdName') or item.get('name', '')
+
+    # MEM 可能用 doc/docx 扩展名
+    file_ext = item.get('file_ext') or '.pdf'
+    filename = make_filename(code, name, suffix=file_ext)
     filepath = output_dir / filename
 
-    if filename in existing:
+    if filename.lower() in existing:
         item['dlStatus'] = 'skipped_existing'
-        return True, 'skipped_existing'
+        item.pop('failReason', None)
+        return True, 'skipped_existing', '文件已存在'
 
+    # === GB：验证码下载 ===
     if std_type == 'gb':
         from app.scanner.gb_scan import extract_hcno
         from app.scanner.download import download_with_captcha
         hcno = item.get('hcno')
         if not hcno:
-            await extract_hcno([item])
+            try:
+                await extract_hcno([item])
+            except Exception as e:
+                item['dlStatus'] = 'failed_hcno'
+                item['failReason'] = f'hcno 提取失败: {type(e).__name__}'
+                return False, 'failed_hcno', item['failReason']
             hcno = item.get('hcno')
         if not hcno:
             item['dlStatus'] = 'failed_no_hcno'
-            return False, 'failed_no_hcno'
+            item['failReason'] = 'hcno 未分配（标准太新）'
+            return False, 'failed_no_hcno', item['failReason']
 
         loop = asyncio.get_running_loop()
-        pdf_data = await loop.run_in_executor(
-            None, fetch_and_save_pdf,
-            lambda: download_with_captcha(hcno), filepath, filename, output_dir)
+        reason_out = {}
+        try:
+            pdf_data = await loop.run_in_executor(
+                None, fetch_and_save_pdf,
+                lambda: download_with_captcha(hcno, reason_out=reason_out),
+                filepath, filename, output_dir)
+        except Exception as e:
+            # 捕获 download_with_captcha / fetch_and_save_pdf 抛出的非预期异常
+            # 防止单条异常中断整个批量重试
+            item['dlStatus'] = 'failed'
+            item['failReason'] = f'{type(e).__name__}: {e}'
+            return False, 'failed', item['failReason']
         if pdf_data:
             item['dlStatus'] = 'downloaded'
             item['fileSize'] = len(pdf_data)
-            return True, 'downloaded'
+            item.pop('failReason', None)
+            return True, 'downloaded', ''
         else:
             item['dlStatus'] = 'failed'
-            return False, 'failed'
+            item['failReason'] = reason_out.get('reason', '未知原因')
+            return False, 'failed', item['failReason']
 
-    else:
+    # === HB/DB：pk 直接下载 ===
+    elif std_type in ('hb', 'db'):
         from app.scanner.hb_scan import download_hb_with_captcha, CopyrightError
         pk = item.get('pk')
         site_type = item.get('siteType', std_type)
         if not pk:
             item['dlStatus'] = 'failed_no_pk'
-            return False, 'failed_no_pk'
+            item['failReason'] = '无 pk 标识'
+            return False, 'failed_no_pk', item['failReason']
 
         loop = asyncio.get_running_loop()
+        reason_out = {}
         try:
             pdf_data = await loop.run_in_executor(
                 None, fetch_and_save_pdf,
-                lambda: download_hb_with_captcha(pk, site_type),
+                lambda: download_hb_with_captcha(pk, site_type, reason_out=reason_out),
                 filepath, filename, output_dir)
-        except CopyrightError:
+        except CopyrightError as e:
             item['dlStatus'] = 'copyright'
-            return False, 'copyright'
+            item['failReason'] = f'版权限制: {e}'
+            return False, 'copyright', item['failReason']
+        except Exception as e:
+            # 捕获非预期异常，防止单条异常中断整个批量重试
+            item['dlStatus'] = 'failed'
+            item['failReason'] = f'{type(e).__name__}: {e}'
+            return False, 'failed', item['failReason']
         if pdf_data:
             item['dlStatus'] = 'downloaded'
-            return True, 'downloaded'
+            item.pop('failReason', None)
+            return True, 'downloaded', ''
         else:
             item['dlStatus'] = 'failed'
-            return False, 'failed'
+            item['failReason'] = reason_out.get('reason', '未知原因')
+            return False, 'failed', item['failReason']
+
+    # === TT：直连 API 下载 ===
+    elif std_type == 'tt':
+        from app.scanner.tt_scan import _download_one_standard as _tt_download
+        # _download_one_standard 内部已设置 dlStatus/failReason
+        try:
+            await _tt_download(item, existing)
+        except Exception as e:
+            item['dlStatus'] = 'failed'
+            item['failReason'] = f'{type(e).__name__}: {e}'
+            return False, 'failed', item['failReason']
+        ok = item.get('dlStatus') == 'downloaded'
+        return ok, item.get('dlStatus', 'failed'), item.get('failReason', '')
+
+    # === MEM：直连 HTML 下载 ===
+    elif std_type == 'mem':
+        from app.scanner.mem_scan import _download_one_standard as _mem_download
+        try:
+            await _mem_download(item, existing)
+        except Exception as e:
+            item['dlStatus'] = 'failed'
+            item['failReason'] = f'{type(e).__name__}: {e}'
+            return False, 'failed', item['failReason']
+        ok = item.get('dlStatus') == 'downloaded'
+        return ok, item.get('dlStatus', 'failed'), item.get('failReason', '')
+
+    else:
+        item['dlStatus'] = 'failed'
+        item['failReason'] = f'不支持的任务类型: {std_type}'
+        return False, 'failed', item['failReason']
 
 
 @router.get("/api/task/{task_id}")
@@ -168,7 +238,7 @@ async def retry_task_api(task_id: str):
     incr = task.get('incr', False)
     scan_only = task.get('scan_only', False)
 
-    if std_type in ('gb', 'hb', 'db', 'tt'):
+    if std_type in ('gb', 'hb', 'db', 'tt', 'mem'):
         config = {
             'max_results': max_results,
             'incr': incr,
@@ -177,7 +247,10 @@ async def retry_task_api(task_id: str):
             'industries': task.get('industries'),
             'provinces': task.get('provinces'),
             'cnl1_codes': task.get('cnl1_codes'),
+            'source': task.get('source', 'bz') if std_type == 'mem' else None,
         }
+        # 移除 None 值，避免污染 config
+        config = {k: v for k, v in config.items() if v is not None}
         result = _create_scan_task(
             scan_type=std_type,
             task_id_prefix=std_type,
@@ -275,13 +348,18 @@ async def retry_single_item(task_id: str, item_index: int):
         os.makedirs(output_dir, exist_ok=True)
 
     existing = get_existing_files()
-    ok, status = await _do_retry_one(items[item_index], std_type, output_dir, existing)
-    msg = f"重试 #{item_index}: {'成功' if ok else '失败'} ({status})"
+    ok, status, reason = await _do_retry_one(items[item_index], std_type, output_dir, existing)
+    # 友好提示：成功显示状态，失败显示具体原因
+    if ok:
+        msg = f"重试 #{item_index}: 成功 ({status})"
+    else:
+        msg = f"重试 #{item_index}: 失败 ({status}) - {reason}" if reason else f"重试 #{item_index}: 失败 ({status})"
 
     task_manager.update(task_id, std_items=items,
                       stats=compute_download_stats(items),
                       message=msg)
-    return {"success": True, "status": status, "item_index": item_index, "message": msg}
+    return {"success": True, "status": status, "item_index": item_index,
+            "message": msg, "ok": ok, "reason": reason}
 
 
 @router.post("/api/task/{task_id}/retry-failed")
@@ -304,12 +382,19 @@ async def retry_all_failed(task_id: str):
 
     items = task.get('std_items', [])
     failed_indices = []
+    # 可重试状态白名单（仅这些状态会进入批量重试）：
+    # - failed / failed_hcno / failed_preview / error:*  → 通用下载失败，重试可能成功
+    # - no_hcno → 标准之前太新未发布到 openstd，现在可能已分配 hcno
+    # - failed_no_hcno → GB 重试时会重新尝试提取 hcno（标准可能已上线）
+    # 不可重试状态（白名单外自动跳过）：
+    # - copyright → 版权保护是网站限制，重试无意义
+    # - failed_no_pk → HB/DB 的 pk 标识不会变，重试无意义
+    # - no_fulltext / preview_disabled → 标准本身不提供全文
+    # - downloaded / skipped_existing / previewed → 已成功，无需重试
+    RETRYABLE_STATUSES = ('failed', 'failed_hcno', 'failed_preview', 'failed_no_hcno', 'no_hcno')
     for i, s in enumerate(items):
         ds = s.get('dlStatus', '')
-        # 不可重试的状态：failed_no_hcno / failed_no_pk（hcno/pk 不会凭空出现）
-        # no_hcno 可重试：标准之前太新未发布到 openstd，现在可能已发布
-        # copyright 不可重试：版权保护是网站限制
-        if ds in ('failed', 'failed_hcno', 'failed_preview', 'no_hcno') or ds.startswith('error:'):
+        if ds in RETRYABLE_STATUSES or ds.startswith('error:'):
             failed_indices.append(i)
 
     if not failed_indices:
@@ -327,29 +412,44 @@ async def retry_all_failed(task_id: str):
     existing = get_existing_files()
     ok_count = 0
     fail_count = 0
+    # 失败原因汇总（按原因计数）
+    fail_reasons = {}
 
     _log.info(f"批量重试 task={task_id} 失败项: {len(failed_indices)} 条")
 
     for i, idx in enumerate(failed_indices):
-        ok, status = await _do_retry_one(items[idx], std_type, output_dir, existing)
+        ok, status, reason = await _do_retry_one(items[idx], std_type, output_dir, existing)
         if ok:
             ok_count += 1
             # 下载成功后更新 existing 快照，防止同批次重复下载
             filename = make_filename(items[idx].get('stdCode') or items[idx].get('code', ''),
-                                     items[idx].get('stdName') or items[idx].get('name', ''))
-            existing.add(filename)
+                                     items[idx].get('stdName') or items[idx].get('name', ''),
+                                     suffix=items[idx].get('file_ext') or '.pdf')
+            existing.add(filename.lower())
         else:
             fail_count += 1
+            if reason:
+                fail_reasons[reason] = fail_reasons.get(reason, 0) + 1
 
         # 每处理一条就推送最新状态，让 UI 实时显示
+        progress_msg = f"批量重试 {i+1}/{len(failed_indices)}: {'OK' if ok else 'FAIL' + (' - ' + reason if reason else '')}"
         task_manager.update(task_id, std_items=items,
                           stats=compute_download_stats(items),
-                          message=f"批量重试 {i+1}/{len(failed_indices)}: {'OK' if ok else 'FAIL'}")
+                          message=progress_msg)
         await asyncio.sleep(get_delay())
+
+    # 汇总消息：失败原因按计数降序展示前 3 个
+    summary_parts = [f"{ok_count} 成功", f"{fail_count} 失败"]
+    if fail_reasons:
+        top_reasons = sorted(fail_reasons.items(), key=lambda x: -x[1])[:3]
+        reasons_str = '；'.join(f"{r}({c}条)" for r, c in top_reasons)
+        summary_parts.append(f"主要原因: {reasons_str}")
+    summary_msg = "批量重试完成: " + '，'.join(summary_parts)
 
     task_manager.update(task_id, std_items=items,
                       stats=compute_download_stats(items),
-                      message=f"批量重试完成: {ok_count} 成功, {fail_count} 失败")
-    _log.info(f"批量重试完成: {ok_count}/{len(failed_indices)} 成功")
+                      message=summary_msg)
+    _log.info(f"批量重试完成: {ok_count}/{len(failed_indices)} 成功, 失败原因: {fail_reasons}")
     return {"success": True, "retried": len(failed_indices),
-            "succeeded": ok_count, "failed": fail_count}
+            "succeeded": ok_count, "failed": fail_count,
+            "fail_reasons": fail_reasons}

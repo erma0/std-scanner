@@ -554,7 +554,7 @@ def _fetch_bz_pdf_url(detail_url: str) -> Optional[str]:
 
 
 async def _download_one_standard(std: dict, existing: set) -> dict:
-    """下载单个应急管理部标准/规章文档。返回更新后的 std（含 dlStatus）。
+    """下载单个应急管理部标准/规章文档。返回更新后的 std（含 dlStatus / failReason）。
 
     bz: 详情页 → 提取 PDF URL → GET 下载 PDF
     gz: 下载 URL 已在列表项（std['pdf_url']）→ 直接 GET 下载（PDF/DOCX/DOC）
@@ -565,7 +565,7 @@ async def _download_one_standard(std: dict, existing: set) -> dict:
     file_ext = std.get('file_ext') or '.pdf'
 
     filename = make_filename(code, name, suffix=file_ext)
-    if filename in existing:
+    if filename.lower() in existing:
         std[_MEM_DL_STATUS] = 'skipped_existing'
         return std
 
@@ -581,6 +581,7 @@ async def _download_one_standard(std: dict, existing: set) -> dict:
         if not detail_url:
             _log.info(f"  [MEM][bz][SKIP] 无详情 URL: {code} {name}")
             std[_MEM_DL_STATUS] = 'no_fulltext'
+            std['failReason'] = '无详情URL'
             return std
         loop = asyncio.get_running_loop()
         pdf_url = await loop.run_in_executor(None, _fetch_bz_pdf_url, detail_url)
@@ -588,6 +589,7 @@ async def _download_one_standard(std: dict, existing: set) -> dict:
     if not pdf_url:
         _log.info(f"  [MEM][{source}][SKIP] 无下载链接: {code} {name}")
         std[_MEM_DL_STATUS] = 'no_fulltext'
+        std['failReason'] = '无下载链接'
         return std
 
     # 下载文档
@@ -603,12 +605,16 @@ async def _download_one_standard(std: dict, existing: set) -> dict:
         if file_ext == '.pdf':
             is_pdf = 'pdf' in content_type.lower() or body[:5] == b'%PDF-'
             if not is_pdf or len(body) < 1000:
-                _log.info(f"  [MEM][{source}][FAIL] 响应非 PDF ({content_type}, {len(body)}B): {code}")
+                reason = f'响应非PDF(ct={content_type},len={len(body)}B)'
+                _log.info(f"  [MEM][{source}][FAIL] {reason}: {code}")
                 std[_MEM_DL_STATUS] = 'failed'
+                std['failReason'] = reason
                 return std
         elif len(body) < 1000:
-            _log.info(f"  [MEM][{source}][FAIL] 响应过小 ({content_type}, {len(body)}B): {code}")
+            reason = f'响应过小(ct={content_type},len={len(body)}B)'
+            _log.info(f"  [MEM][{source}][FAIL] {reason}: {code}")
             std[_MEM_DL_STATUS] = 'failed'
+            std['failReason'] = reason
             return std
         # 落盘
         out_dir = get_output_dir()
@@ -616,11 +622,14 @@ async def _download_one_standard(std: dict, existing: set) -> dict:
         filepath.write_bytes(body)
         _log.info(f"  [MEM][{source}][OK] {filepath} ({len(body)/1024:.0f}KB)")
         std[_MEM_DL_STATUS] = 'downloaded'
-        existing.add(filename)
+        std.pop('failReason', None)
+        existing.add(filename.lower())
         return std
     except Exception as e:
+        reason = f'{type(e).__name__}: {e}'
         _log.error(f"  [MEM][{source}][ERROR] 下载失败 {code}: {e}")
         std[_MEM_DL_STATUS] = 'failed'
+        std['failReason'] = reason
         return std
 
 
@@ -782,17 +791,18 @@ async def run_mem_pipeline(
     except Exception as e:
         _log.debug(f"[MEM][{source}] 变更追踪异常: {e}")
 
-    # 扫描结果为空：明确标识"无符合条件标准"，跳过下载阶段
+    # 扫描结果为空：区分"无新增（增量命中）"和"无符合条件标准"，跳过下载阶段
     if not standards:
         if task_manager and task_id:
             state_label = std_state or '全部'
+            empty_msg = '无新增' if incr else '无符合条件'
             task_manager.update(task_id,
                 progress=progress_base + progress_per_scan + progress_per_download,
                 dl_progress=100,
-                message=f"无符合条件{source_label}（{state_label}），跳过下载",
+                message=f"{empty_msg}{source_label}（{state_label}），跳过下载",
                 stats={'scanned': 0, 'downloaded': 0, 'success': 0, 'failed': 0, 'skipped': 0},
                 std_items=[])
-        _log.info(f"[MEM][{source}] 无符合条件{source_label}（{std_state or '全部'}），跳过下载")
+        _log.info(f"[MEM][{source}] {empty_msg}{source_label}（{std_state or '全部'}），跳过下载")
         return standards
 
     if scan_only:

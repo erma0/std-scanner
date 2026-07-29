@@ -109,17 +109,19 @@ def _create_scan_task(scan_type, task_id_prefix, config, resume_task_id=None):
                 task_manager=task_manager,
             )
 
-            # 扫描结果为空：标识"无符合条件标准"，不计入下载统计
+            # 扫描结果为空：区分"无新增（增量命中）"和"无符合条件标准"，不计入下载统计
             if not standards:
                 std_state = config.get('std_state', '现行')
                 state_label = std_state or '全部'
+                incr = config.get('incr', False)
+                empty_msg = '无新增标准' if incr else '无符合条件标准'
                 task_manager.update(task_id,
                     stats={'scanned': 0, 'downloaded': 0, 'success': 0, 'failed': 0, 'skipped': 0},
                     std_items=[],
                     progress=100, status="completed",
                     end_time=time.time(),
-                    message=f"无符合条件标准（{state_label}），跳过下载")
-                _log.info(f"任务 {task_id}: 无符合条件标准（{state_label}），跳过下载")
+                    message=f"{empty_msg}（{state_label}），跳过下载")
+                _log.info(f"任务 {task_id}: {empty_msg}（{state_label}），跳过下载")
                 task_manager.save_all()
                 return
 

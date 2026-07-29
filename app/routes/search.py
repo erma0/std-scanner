@@ -341,7 +341,7 @@ async def _download_selected_items(task_id, items, progress_base=0):
                             message=f"[{i+1}/{total}] 处理: {code} {name}")
 
             filename = make_filename(code, name)
-            if filename in existing:
+            if filename.lower() in existing:
                 _log.info(f"  [SKIP] 已存在: {filename}")
                 task_manager.increment_stats(task_id, skipped=1)
                 continue

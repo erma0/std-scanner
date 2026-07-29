@@ -28,12 +28,18 @@ router = APIRouter(prefix="", tags=["ScheduledJobs"])
 # ==================== 定时扫描执行逻辑 ====================
 
 async def _do_scheduled_scan_impl(scan_type, max_results, keyword_group, job_cfg, task_id=None):
-    """定时扫描核心实现（所有类型默认增量扫描）
+    """定时扫描核心实现（默认增量扫描，可通过 job_cfg 覆盖 incr/scan_only/std_state）
 
     v3.6.4: all 类型改为三个独立并发任务，支持独立暂停/恢复。
     支持暂停检查和 sub_stats 统计。
+    v3.7.x: 与主面板选项对齐，支持 incr/scan_only/std_state 透传（默认值与主面板一致）。
     """
     from app.scanner_engine import run_scan_pipeline
+    # 与主面板默认值保持一致：incr=True / scan_only=False / std_state='现行'
+    incr = job_cfg.get('incr', True)
+    scan_only = job_cfg.get('scan_only', False)
+    std_state = job_cfg.get('std_state', '现行')
+
     if scan_type == 'all':
         scan_types = job_cfg.get('scan_types', ['gb', 'hb', 'db'])
         hb_cfg = {'industries': job_cfg.get('industries')}
@@ -46,7 +52,8 @@ async def _do_scheduled_scan_impl(scan_type, max_results, keyword_group, job_cfg
         from ._utils import create_combined_scan_tasks
         task_ids, scan_fn = create_combined_scan_tasks(
             scan_types=scan_types, max_results=max_results,
-            incr=True, keyword_group=keyword_group, scan_only=False,
+            incr=incr, scan_only=scan_only, keyword_group=keyword_group,
+            std_state=std_state,
             hb_config=hb_cfg, db_config=db_cfg, tt_config=tt_cfg, mem_config=mem_cfg,
         )
         await scan_fn()
@@ -102,7 +109,10 @@ async def _do_scheduled_scan_impl(scan_type, max_results, keyword_group, job_cfg
         _log.info(f"定时联合扫描完成: {title}")
     else:
         config = {
-            'max_results': max_results, 'incr': True,
+            'max_results': max_results,
+            'incr': incr,
+            'scan_only': scan_only,
+            'std_state': std_state,
             'keyword_group': keyword_group,
             'industries': job_cfg.get('industries'),
             'provinces': job_cfg.get('provinces'),
@@ -140,8 +150,9 @@ def run_scheduled_scan(job_id: str, job_config: dict):
                 "std_items": [],
                 "keyword_group": job_cfg.get('keyword_group', '安全生产'),
                 "max_results": job_cfg.get('max_results', 500),
-                "incr": True,
-                "scan_only": False,
+                "incr": job_cfg.get('incr', True),
+                "scan_only": job_cfg.get('scan_only', False),
+                "std_state": job_cfg.get('std_state', '现行'),
                 "paused_duration": 0,
             })
         _log.info(f"定时任务开始: {job_id}")
