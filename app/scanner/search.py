@@ -53,15 +53,23 @@ def fetch_stdpage_search(query, page=1, std_type='国家标准'):
         pid = link.attrib.get('pid', '')
 
         all_text_parts = link.css('::text').getall()
-        full_text = ''.join(t.strip() for t in all_text_parts if t.strip())
+        # 保留文本节点之间的空格：标准名称中间可能含空格，被多个文本节点
+        # （如含 <sacinfo> 标签）拆分时不能丢失
+        full_text = ' '.join(t.strip() for t in all_text_parts if t.strip())
+        full_text = re.sub(r'\s+', ' ', full_text).strip()
 
-        code = link.css('span.en-code::text').get('').strip()
-        if not code:
-            code = full_text.split()[0] if full_text else ''
+        raw_code = link.css('span.en-code::text').get('').strip()
+        if not raw_code:
+            raw_code = all_text_parts[0].strip() if all_text_parts else ''
 
-        code = normalize_code(code)
+        code = normalize_code(raw_code)
 
-        name = full_text.replace(code, '').strip()
+        # 用原始文本做前缀匹配移除标准号，避免 normalize 改变字符导致匹配失败、
+        # 把标准号误混入名称；同时保留名称中间的空格
+        name = full_text
+        if raw_code and full_text.startswith(raw_code):
+            name = full_text[len(raw_code):].strip()
+        name = name.strip()
 
         status = panel.css('span.s-status.label-info::text').get('').strip()
 
