@@ -4,7 +4,7 @@ import json
 import time
 import logging
 
-from config.paths import CKPT_FILE, SCAN_CHECKPOINT_FILE
+from config import paths
 from app.helpers import atomic_write
 
 _log = logging.getLogger('std_scraper')
@@ -17,9 +17,9 @@ def _migrate_old_ckpt():
     global _migrated
     if _migrated:
         return
-    if CKPT_FILE.exists() and not SCAN_CHECKPOINT_FILE.exists():
+    if paths.CKPT_FILE.exists() and not paths.SCAN_CHECKPOINT_FILE.exists():
         try:
-            with open(CKPT_FILE, 'r') as f:
+            with open(paths.CKPT_FILE, 'r') as f:
                 old = json.load(f)
             new = {
                 'gb': {
@@ -29,9 +29,9 @@ def _migrate_old_ckpt():
                     'updatedAt': old.get('updatedAt', ''),
                 }
             }
-            SCAN_CHECKPOINT_FILE.parent.mkdir(parents=True, exist_ok=True)
-            atomic_write(str(SCAN_CHECKPOINT_FILE), json.dumps(new, ensure_ascii=False, indent=2), mode='w')
-            CKPT_FILE.rename(CKPT_FILE.with_suffix('.json.migrated'))
+            paths.SCAN_CHECKPOINT_FILE.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write(str(paths.SCAN_CHECKPOINT_FILE), json.dumps(new, ensure_ascii=False, indent=2), mode='w')
+            paths.CKPT_FILE.rename(paths.CKPT_FILE.with_suffix('.json.migrated'))
             _log.info("[CKPT] 已从旧 checkpoint 迁移")
         except Exception as e:
             _log.warning(f"[CKPT] 旧 checkpoint 迁移失败: {e}")
@@ -42,7 +42,7 @@ def load_scan_checkpoint():
     """加载统一增量 checkpoint"""
     _migrate_old_ckpt()
     try:
-        with open(SCAN_CHECKPOINT_FILE, 'r', encoding='utf-8') as f:
+        with open(paths.SCAN_CHECKPOINT_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
     except (json.JSONDecodeError, OSError):
         return {}
@@ -51,8 +51,8 @@ def load_scan_checkpoint():
 def _save_scan_checkpoint(data):
     """保存统一增量 checkpoint（原子写入）"""
     data['_updatedAt'] = time.strftime('%Y-%m-%d %H:%M:%S')
-    SCAN_CHECKPOINT_FILE.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write(str(SCAN_CHECKPOINT_FILE), json.dumps(data, ensure_ascii=False, indent=2), mode='w')
+    paths.SCAN_CHECKPOINT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write(str(paths.SCAN_CHECKPOINT_FILE), json.dumps(data, ensure_ascii=False, indent=2), mode='w')
 
 
 def get_incr_checkpoint(scan_type, item_key=None):
