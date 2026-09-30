@@ -14,15 +14,11 @@ from pathlib import Path
 # 添加当前目录到路径
 sys.path.insert(0, str(Path(__file__).parent))
 
-# 顶层导入：主线程同步加载完成，确保 webview.start() 后窗口立即显示 loading 页
-# （app.server 的重模块已做懒加载：scanner/__init__.py 延迟导出、TaskManager 用 _LazyProxy，
-#  路由内 scanner/dedup/captcha 均延迟导入，import app.server 约 0.7s）
-import app.server as api_module
-
+# webview 必须主线程导入（create_window/start 都依赖它）；pystray/PIL/uvicorn 延迟到使用处
+# 注：app.server 不在顶层导入——它阻塞主线程 ~1s，会延迟 webview.start() 调用，
+# 让窗口晚出。uvicorn.Config 用字符串 "app.server:app"，uvicorn.run() 时才真正 import。
 try:
     import webview
-    from pystray import Icon, Menu, MenuItem
-    from PIL import Image
     import uvicorn
 except ImportError as e:
     print(f"[ERROR] 缺少依赖: {e}")
@@ -76,6 +72,8 @@ def start_api_server():
     """启动FastAPI服务（使用 uvicorn.Server 以支持外部关闭）
 
     端口清理放在此处而非 main() 开头：与窗口创建并行，避免阻塞 loading 页显示。
+    uvicorn 用字符串 "app.server:app" 延迟 import，避免阻塞主线程。
+    log_level=warning：减少启动日志噪音（Started/Waiting/18092 GET 等不再刷屏）。
     """
     global api_server
     _kill_port_occupant()
@@ -83,7 +81,7 @@ def start_api_server():
         "app.server:app",
         host=_SERVER_HOST,
         port=_SERVER_PORT,
-        log_level="info",
+        log_level="warning",
         # 给 lifespan yield 之后的清理代码（sse_close_all/scheduler.shutdown/...）足够时间执行
         timeout_graceful_shutdown=5,
     )
@@ -92,7 +90,9 @@ def start_api_server():
 
 
 def create_tray_icon():
-    """创建系统托盘图标"""
+    """创建系统托盘图标（pystray/PIL 延迟导入，避免阻塞主线程）"""
+    from pystray import Icon, Menu, MenuItem
+    from PIL import Image
     # 加载应用 logo 作为托盘图标
     icon_path = Path(__file__).parent / "static" / "icon.ico"
     try:
@@ -263,8 +263,10 @@ def main():
     def _setup_when_api_ready():
         wait_for_api()
         try:
+            # 延迟 import app.server：此时 uvicorn 已完成 import，sys.modules 有缓存
             # 不再在此创建独立 event loop：lifespan 启动后会用 running loop 覆盖 state._main_loop，
             # 这里创建的 loop 从不运行任何任务，纯属冗余。仅注入窗口对象。
+            import app.server as api_module
             api_module.setup_pywebview(webview_window, None)
             print("[INFO] pywebview 窗口已注入到 API 模块")
         except Exception as e:
@@ -275,18 +277,20 @@ def main():
     setup_thread = threading.Thread(target=_setup_when_api_ready, daemon=True)
     setup_thread.start()
 
-    # 5. 创建系统托盘
-    tray_icon = None
-    try:
-        tray_icon = create_tray_icon()
-    except Exception as e:
-        print(f"[WARN] 创建系统托盘失败: {e}")
+    # 5. 创建系统托盘（后台线程，不阻塞 webview.start）
+    #    pystray/PIL import + Image.open + Icon 构造在后台执行
+    def _start_tray():
+        try:
+            tray_icon = create_tray_icon()
+            tray_icon.run()
+        except Exception as e:
+            print(f"[WARN] 创建系统托盘失败: {e}")
 
-    if tray_icon:
-        tray_thread = threading.Thread(target=tray_icon.run, daemon=True)
-        tray_thread.start()
+    tray_thread = threading.Thread(target=_start_tray, daemon=True)
+    tray_thread.start()
 
     # 6. 启动 webview 主循环（窗口立即显示 loading 页）
+    #    主线程不再被 import app.server / 托盘创建阻塞，窗口能更早显示
     print("[INFO] 启动窗口...")
     try:
         webview.start(icon=_icon_path)
