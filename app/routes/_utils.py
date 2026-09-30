@@ -29,6 +29,19 @@ def launch_task(coro, name="unnamed"):
     return task
 
 
+def _mem_task_fields(scan_type, mem_config):
+    """生成 mem 任务对象所需的 site/sites 字段（其他类型返回空 dict）。"""
+    if scan_type != 'mem':
+        return {}
+    mem_config = mem_config or {}
+    sites_cfg = mem_config.get('sites')
+    if isinstance(sites_cfg, list) and len(sites_cfg) > 0:
+        # 多站点：保存 mem_sites，并以首个 site 作为兼容 mem_site
+        return {'mem_sites': sites_cfg, 'mem_site': sites_cfg[0].get('site', 'mem')}
+    return {'mem_site': mem_config.get('site', 'mem'),
+            'mem_source': mem_config.get('source', 'bz')}
+
+
 def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
                                 scan_only, gb_config=None, hb_config=None,
                                 db_config=None, tt_config=None, mem_config=None,
@@ -62,11 +75,23 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
     for st in scan_types:
         tid = f"{st}_{ts}"
 
+        # mem 类型按 site 区分标签（支持多站点）
+        _MEM_LABELS = {'mem': '应急管理部标准', 'samr': '市场监管总局法规'}
+        if st == 'mem':
+            sites_cfg = (mem_config or {}).get('sites')
+            if isinstance(sites_cfg, list) and len(sites_cfg) > 1:
+                label = '+'.join(_MEM_LABELS.get(t.get('site'), '政策法规') for t in sites_cfg)
+            else:
+                mem_site = (mem_config or {}).get('site', 'mem')
+                label = _MEM_LABELS.get(mem_site, '应急管理部标准')
+        else:
+            label = _type_label.get(st, st)
+
         task_manager.create(tid, {
             "task_id": tid,
             "status": "running",
             "progress": 0,
-            "message": f"开始扫描{_type_label.get(st, st)}",
+            "message": f"开始扫描{label}",
             "stats": {"scanned": 0, "downloaded": 0, "success": 0, "failed": 0, "skipped": 0},
             "start_time": time.time(),
             "std_type": st,
@@ -77,6 +102,7 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
             "incr": incr,
             "scan_only": scan_only,
             "paused_duration": 0,
+            **_mem_task_fields(st, mem_config),
         })
         task_ids.append(tid)
 
@@ -94,12 +120,48 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
                 'provinces': tc.get('config', {}).get('provinces'),
                 'cnl1_codes': tc.get('config', {}).get('cnl1_codes'),
             }
-            # MEM 透传 source（bz 标准文本 | gz 规章 | all 两源并发）
+            # MEM 透传：支持 sites 列表（多站点）或 site/source（单站点）
             if st == 'mem':
-                mem_src = tc.get('config', {}).get('source', 'bz')
-                config['source'] = mem_src if mem_src in ('bz', 'gz', 'all') else 'bz'
+                mem_cfg = tc.get('config', {})
+                sites_cfg = mem_cfg.get('sites')
+                if isinstance(sites_cfg, list) and len(sites_cfg) > 0:
+                    # 多站点模式：透传 sites，过滤无效项
+                    valid = []
+                    for t in sites_cfg:
+                        s = t.get('site', 'mem')
+                        src = t.get('source', 'bz')
+                        if s == 'samr':
+                            src = src if src in ('flfg', 'aqjsgf', 'all') else 'aqjsgf'
+                        else:
+                            s = 'mem'
+                            src = src if src in ('bz', 'gz', 'all') else 'bz'
+                        valid.append({'site': s, 'source': src})
+                    if len(valid) == 1:
+                        config['site'] = valid[0]['site']
+                        config['source'] = valid[0]['source']
+                    else:
+                        config['sites'] = valid
+                else:
+                    mem_site = mem_cfg.get('site', 'mem')
+                    config['site'] = mem_site if mem_site in ('mem', 'samr') else 'mem'
+                    mem_src = mem_cfg.get('source', 'bz')
+                    if config['site'] == 'samr':
+                        config['source'] = mem_src if mem_src in ('flfg', 'aqjsgf', 'all') else 'aqjsgf'
+                    else:
+                        config['source'] = mem_src if mem_src in ('bz', 'gz', 'all') else 'bz'
             if st == 'gb' and allow_preview is not None:
                 config['allow_preview'] = allow_preview
+
+            # 动态计算标签（mem 按 site 区分）
+            if st == 'mem':
+                _MEM_LABELS = {'mem': '应急管理部标准', 'samr': '市场监管总局法规'}
+                sites_cfg = config.get('sites')
+                if isinstance(sites_cfg, list) and len(sites_cfg) > 1:
+                    _label = '+'.join(_MEM_LABELS.get(t.get('site'), '政策法规') for t in sites_cfg)
+                else:
+                    _label = _MEM_LABELS.get(config.get('site'), '应急管理部标准')
+            else:
+                _label = _type_label.get(st, st)
 
             try:
                 standards = await run_scan_pipeline(
@@ -127,7 +189,7 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
                     stats=stats, std_items=standards,
                     progress=100, status="completed",
                     end_time=time.time(),
-                    message=f"{_type_label.get(st, st)}下载完成({len(standards)}条)")
+                    message=f"{_label}下载完成({len(standards)}条)")
 
                 # 发送通知
                 task = task_manager.get(tid)

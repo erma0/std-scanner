@@ -103,6 +103,21 @@ MEM_LIST_URL = f"{MEM_BASE}/fw/flfgbz/bz/bzwb/"  # 标准文本列表页（默�
 # 应急管理部规章：列表页通过 iframe 嵌入此 URL（gz11 栏目）
 MEM_GZ_LIST_URL = f"{MEM_BASE}/gk/zfxxgkpt/fdzdgknr/gz11/index.shtml"
 
+# 市场监督管理总局 — 政策法规（https://www.samr.gov.cn/tzsbj/zcfg/）
+# 列表页通过 jpaas-publish-server API 动态渲染（unitbuild.js + page.js）
+# 无 WAF，可用 httpx 直接调用 API 获取列表 HTML
+SAMR_BASE = "https://www.samr.gov.cn"
+SAMR_API_URL = f"{SAMR_BASE}/api-gateway/jpaas-publish-server/front/page/build/unit"
+SAMR_WEB_ID = "29e9522dc89d4e088a953d8cede72f4c"
+SAMR_TPL_SET_ID = "5c30fb89ae5e48b9aefe3cdf49853830"
+# 栏目 pageId：仅扫描有更新的两个栏目（法律法规 + 安全技术规范）
+# 规范性文件(gfxwj)/地方法规(dffg) 长期无更新，不扫描
+SAMR_PAGE_IDS = {
+    'flfg': '71a7dfa8b2624e2e97a65bacfc570daa',    # 法律法规
+    'aqjsgf': '6b042a0744f4442c928a9a6aff47129f',  # 安全技术规范
+}
+SAMR_PAGE_SIZE = 10  # API 每页条数（实测）
+
 # ==================== 分页/间隔 ====================
 PAGE_SIZE = 50
 

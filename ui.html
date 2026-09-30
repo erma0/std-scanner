@@ -449,7 +449,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                         <i class="fa fa-users mr-1.5 text-purple-500"></i>团体标准
                                     </button>
                                     <button class="scan-tab" data-scan-type="mem">
-                                        <i class="fa fa-shield mr-1.5 text-amber-600"></i>应急管理部
+                                        <i class="fa fa-shield mr-1.5 text-amber-600"></i>政策法规
                                     </button>
                                     <button class="scan-tab active" data-scan-type="all">
                                         <i class="fa fa-refresh mr-1.5"></i>联合扫描
@@ -582,13 +582,11 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                 <div id="scan-mem-panel" class="scan-panel hidden">
                                     <div class="space-y-4">
                                         <div class="flex items-center gap-3 flex-wrap">
-                                            <label class="text-sm font-medium text-gray-700">栏目</label>
-                                            <select id="mem-source" class="px-2 py-1.5 border border-gray-300 rounded text-sm">
-                                                <option value="bz" selected>标准文本</option>
-                                                <option value="gz">规章</option>
-                                                <option value="all">全部（标准文本+规章）</option>
-                                            </select>
-                                            <span class="text-gray-300 mx-1">|</span>
+                                            <label class="text-sm font-medium text-gray-700">扫描内容</label>
+                                            <div id="mem-source-chips" class="flex flex-wrap gap-1.5"></div>
+                                            <span class="text-xs text-gray-400">点击多选</span>
+                                        </div>
+                                        <div class="flex items-center gap-3 flex-wrap">
                                             <label class="text-sm font-medium text-gray-700">采集</label>
                                             <input type="number" id="mem-pages" value="500" min="1" max="10000" class="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-center">
                                             <span class="text-sm text-gray-500">条</span>
@@ -604,7 +602,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                             <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="mem-incr" class="w-4 h-4 text-blue-500 rounded mr-1.5" checked>增量</label>
                                         </div>
                                         <button id="mem-scan-btn" class="w-full success-btn text-white font-medium py-2.5 px-4 rounded-lg text-sm flex items-center justify-center">
-                                            <i class="fa fa-play mr-2"></i>开始扫描应急管理部标准/规章
+                                            <i class="fa fa-play mr-2"></i>开始扫描政策法规
                                         </button>
                                     </div>
                                 </div>
@@ -705,17 +703,13 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                                 <input type="checkbox" id="all-mem-check" class="w-4 h-4 text-amber-600 rounded mt-0.5 flex-shrink-0">
                                                 <div class="ml-3 flex-1">
                                                     <div class="flex items-center justify-between cursor-pointer" onclick="toggleCollapse('all-mem-body','all-mem-arrow')">
-                                                        <span class="text-sm font-medium text-gray-800"><i class="fa fa-shield mr-1.5 text-amber-600"></i>应急管理部标准</span>
+                                                        <span class="text-sm font-medium text-gray-800"><i class="fa fa-shield mr-1.5 text-amber-600"></i>政策法规</span>
                                                         <i class="fa fa-chevron-right text-gray-400 text-xs transition-transform" id="all-mem-arrow"></i>
                                                     </div>
                                                     <div class="collapse-body hidden mt-2" id="all-mem-body">
-                                                        <div class="flex items-center gap-2 text-xs">
-                                                            <span class="text-gray-600">栏目</span>
-                                                            <select id="all-mem-source" class="px-2 py-1 border border-gray-300 rounded text-xs">
-                                                                <option value="bz" selected>标准文本</option>
-                                                                <option value="gz">规章</option>
-                                                                <option value="all">全部（标准文本+规章）</option>
-                                                            </select>
+                                                        <div class="flex items-center gap-2 text-xs flex-wrap">
+                                                            <span class="text-gray-600">内容</span>
+                                                            <div id="all-mem-source-chips" class="flex flex-wrap gap-1"></div>
                                                             <span class="text-gray-400">·使用上方统一采集条数</span>
                                                         </div>
                                                     </div>
@@ -1167,7 +1161,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             <option value="hb">行业标准</option>
                             <option value="db">地方标准</option>
                             <option value="tt">团体标准</option>
-                            <option value="mem">应急管理部标准</option>
+                            <option value="mem">政策法规</option>
                             <option value="all">联合扫描</option>
                         </select>
                     </div>
@@ -1275,27 +1269,27 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                         </div>
                     </div>
                     <div id="schedule-mem-config" class="hidden">
-                        <div class="flex items-center gap-3 flex-wrap">
-                            <label class="text-sm font-medium text-gray-700">栏目</label>
-                            <select id="schedule-mem-source" class="px-2 py-1.5 border border-gray-300 rounded text-sm">
-                                <option value="bz" selected>标准文本</option>
-                                <option value="gz">规章</option>
-                                <option value="all">全部（标准文本+规章）</option>
-                            </select>
-                            <span class="text-gray-300 mx-1">|</span>
-                            <label class="text-sm font-medium text-gray-700">采集</label>
-                            <input type="number" id="schedule-mem-pages" value="500" min="1" max="10000" class="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-center">
-                            <span class="text-sm text-gray-500">条</span>
-                            <span class="text-gray-300 mx-1">|</span>
-                            <span class="text-sm text-gray-600">状态</span>
-                            <select id="schedule-mem-state" class="px-2 py-1.5 border border-gray-300 rounded text-sm">
-                                <option value="现行" selected>现行</option>
-                                <option value="废止">废止</option>
-                                <option value="全部">全部</option>
-                            </select>
-                            <span class="text-gray-300 mx-1">|</span>
-                            <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="schedule-mem-scan-only" class="w-4 h-4 text-blue-500 rounded mr-1.5">仅扫描</label>
-                            <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="schedule-mem-incr" class="w-4 h-4 text-blue-500 rounded mr-1.5" checked>增量</label>
+                        <div class="space-y-2">
+                            <div class="flex items-center gap-3 flex-wrap">
+                                <label class="text-sm font-medium text-gray-700">扫描内容</label>
+                                <div id="schedule-mem-source-chips" class="flex flex-wrap gap-1.5"></div>
+                                <span class="text-xs text-gray-400">点击多选</span>
+                            </div>
+                            <div class="flex items-center gap-3 flex-wrap">
+                                <label class="text-sm font-medium text-gray-700">采集</label>
+                                <input type="number" id="schedule-mem-pages" value="500" min="1" max="10000" class="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-center">
+                                <span class="text-sm text-gray-500">条</span>
+                                <span class="text-gray-300 mx-1">|</span>
+                                <span class="text-sm text-gray-600">状态</span>
+                                <select id="schedule-mem-state" class="px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                    <option value="现行" selected>现行</option>
+                                    <option value="废止">废止</option>
+                                    <option value="全部">全部</option>
+                                </select>
+                                <span class="text-gray-300 mx-1">|</span>
+                                <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="schedule-mem-scan-only" class="w-4 h-4 text-blue-500 rounded mr-1.5">仅扫描</label>
+                                <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="schedule-mem-incr" class="w-4 h-4 text-blue-500 rounded mr-1.5" checked>增量</label>
+                            </div>
                         </div>
                     </div>
                     <div id="schedule-all-config" class="hidden">
@@ -1388,17 +1382,13 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                     <input type="checkbox" id="schedule-all-mem-check" class="w-4 h-4 text-amber-600 rounded mt-0.5 flex-shrink-0">
                                     <div class="ml-3 flex-1">
                                         <div class="flex items-center justify-between cursor-pointer" onclick="toggleCollapse('schedule-all-mem-body','schedule-all-mem-arrow')">
-                                            <span class="text-sm font-medium text-gray-800"><i class="fa fa-shield mr-1.5 text-amber-600"></i>应急管理部标准</span>
+                                            <span class="text-sm font-medium text-gray-800"><i class="fa fa-shield mr-1.5 text-amber-600"></i>政策法规</span>
                                             <i class="fa fa-chevron-right text-gray-400 text-xs transition-transform" id="schedule-all-mem-arrow"></i>
                                         </div>
                                         <div class="collapse-body hidden mt-2" id="schedule-all-mem-body">
-                                            <div class="flex items-center gap-2 text-xs">
-                                                <span class="text-gray-600">栏目</span>
-                                                <select id="schedule-all-mem-source" class="px-2 py-1 border border-gray-300 rounded text-xs">
-                                                    <option value="bz" selected>标准文本</option>
-                                                    <option value="gz">规章</option>
-                                                    <option value="all">全部（标准文本+规章）</option>
-                                                </select>
+                                            <div class="flex items-center gap-2 text-xs flex-wrap">
+                                                <span class="text-gray-600">内容</span>
+                                                <div id="schedule-all-mem-source-chips" class="flex flex-wrap gap-1"></div>
                                                 <span class="text-gray-400">·使用上方统一采集条数</span>
                                             </div>
                                         </div>
@@ -2361,15 +2351,15 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4">
                 <div class="flex items-center justify-between mb-2">
                     <h3 class="font-medium text-sm text-gray-800 dark:text-gray-200 flex items-center">
-                        <i class="fa fa-shield mr-2 text-amber-600"></i>应急管理部标准 (MEM)
+                        <i class="fa fa-shield mr-2 text-amber-600"></i>政策法规 (MEM)
                     </h3>
-                    ${items.length > 0 ? `<button data-ckpt-reset="mem" data-ckpt-label="应急管理部标准(MEM)" class="text-xs bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-500 dark:text-red-400 px-2.5 py-1 rounded-lg transition-colors"><i class="fa fa-undo mr-1"></i>全部重置</button>` : ''}
+                    ${items.length > 0 ? `<button data-ckpt-reset="mem" data-ckpt-label="政策法规(MEM)" class="text-xs bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-500 dark:text-red-400 px-2.5 py-1 rounded-lg transition-colors"><i class="fa fa-undo mr-1"></i>全部重置</button>` : ''}
                 </div>
                 ${items.length > 0
                     ? items.map(([key, data]) => `
                         <div class="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400 py-0.5">
                             <div class="flex items-center gap-3">
-                                <span class="text-amber-700 dark:text-amber-400 font-semibold text-xs">全部分类</span>
+                                <span class="text-amber-700 dark:text-amber-400 font-semibold text-xs">${escapeHtml(data.label || key)}</span>
                                 <span class="text-gray-300 dark:text-gray-600">|</span>
                                 <span>起点: <span class="font-mono text-xs">${data.first_name ? escapeHtml(data.first_name) + ' ' : ''}${data.first_code ? '(' + escapeHtml(data.first_code) + ')' : '--'}</span></span>
                                 <span class="text-gray-300 dark:text-gray-600">|</span>
@@ -2377,7 +2367,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             </div>
                             <div class="flex items-center gap-3">
                                 <span class="text-xs text-gray-400 dark:text-gray-500">${data.updatedAt || ''}</span>
-                                <button data-ckpt-reset="mem" data-ckpt-label="应急管理部标准" class="text-xs text-red-400 hover:text-red-600 dark:text-red-500 dark:hover:text-red-400 transition-colors"><i class="fa fa-undo"></i></button>
+                                <button data-ckpt-reset="mem" data-ckpt-item="${escapeHtml(key)}" data-ckpt-label="${escapeHtml(data.label || key)}" class="text-xs text-red-400 hover:text-red-600 dark:text-red-500 dark:hover:text-red-400 transition-colors"><i class="fa fa-undo"></i></button>
                             </div>
                         </div>
                     `).join('')
@@ -3082,12 +3072,128 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             renderTtCnlTags('all-tt-cnl-tags', allTtCnlCodes);
         }
 
+        // MEM 政策法规扫描内容选项（扁平列表：每个 site+source 一个 chip）
+        // 站点前缀用短标签（应急/市监），区分来源但不抢眼
+        const MEM_SOURCES = [
+            { site: 'mem',  source: 'bz',     siteLabel: '应急', label: '标准文本' },
+            { site: 'mem',  source: 'gz',     siteLabel: '应急', label: '规章' },
+            { site: 'samr', source: 'aqjsgf', siteLabel: '市监', label: '安全技术规范' },
+            { site: 'samr', source: 'flfg',   siteLabel: '市监', label: '法律法规' },
+        ];
+
+        // 兼容引用：MEM_SOURCE_OPTIONS 供 sitesToChipSelected 展开使用
+        const MEM_SITE_LABELS = { 'mem': '应急管理部', 'samr': '市场监管总局' };
+        const MEM_SOURCE_OPTIONS = {
+            'mem':  MEM_SOURCES.filter(s => s.site === 'mem').map(s => ({ value: s.source, label: s.label })),
+            'samr': MEM_SOURCES.filter(s => s.site === 'samr').map(s => ({ value: s.source, label: s.label })),
+        };
+
+        /**
+         * 渲染扫描内容 chip 流（多选）。
+         * 每个 chip = 一个 site+source 组合，点击切换激活态。
+         *
+         * @param {string} containerId - chip 容器 id（mem-source-chips / all-mem-source-chips /
+         *   schedule-mem-source-chips / schedule-all-mem-source-chips）
+         * @param {Array<{site, source}>} selectedSites - 当前选中的 site+source 列表
+         */
+        function renderMemSourceChips(containerId, selectedSites) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            const selected = new Set((selectedSites || []).map(s => `${s.site}:${s.source}`));
+            // 推断尺寸变体：根据容器 id 判断是主面板（大）还是联合扫描卡片（小）
+            const isCompact = containerId.indexOf('all-') === 0 || containerId.indexOf('schedule-all-') === 0;
+            const sizeCls = isCompact
+                ? 'px-2 py-0.5 text-xs'
+                : 'px-2.5 py-1 text-xs';
+            container.innerHTML = '';
+            MEM_SOURCES.forEach(item => {
+                const key = `${item.site}:${item.source}`;
+                const isActive = selected.has(key);
+                const chip = document.createElement('button');
+                chip.type = 'button';
+                chip.dataset.site = item.site;
+                chip.dataset.source = item.source;
+                chip.dataset.active = isActive ? '1' : '0';
+                chip.className = `mem-source-chip inline-flex items-center gap-1 ${sizeCls} rounded-full cursor-pointer transition-all border ${
+                    isActive
+                        ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
+                        : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border-gray-200'
+                }`;
+                chip.innerHTML = `<span class="opacity-60 text-[10px]">${item.siteLabel}</span><span class="font-medium">${item.label}</span>`;
+                chip.addEventListener('click', () => {
+                    const current = collectMemSitesFromChips(containerId);
+                    const idx = current.findIndex(s => s.site === item.site && s.source === item.source);
+                    if (idx >= 0) current.splice(idx, 1);
+                    else current.push({ site: item.site, source: item.source });
+                    renderMemSourceChips(containerId, current);
+                });
+                container.appendChild(chip);
+            });
+
+            // 全选/全不选切换按钮：虚线边框区分，collectMemSitesFromChips 只收集 .mem-source-chip 不会误读
+            const allSelected = MEM_SOURCES.length > 0 && selected.size >= MEM_SOURCES.length;
+            const toggleAll = document.createElement('button');
+            toggleAll.type = 'button';
+            toggleAll.className = `inline-flex items-center gap-1 ${sizeCls} rounded-full cursor-pointer transition-all border border-dashed ${
+                allSelected
+                    ? 'bg-gray-500 text-white border-gray-500'
+                    : 'bg-white text-gray-500 hover:bg-gray-50 border-gray-300'
+            }`;
+            toggleAll.innerHTML = `<i class="fa ${allSelected ? 'fa-check-square' : 'fa-square-o'} text-[10px]"></i><span>${allSelected ? '全不选' : '全选'}</span>`;
+            toggleAll.addEventListener('click', () => {
+                const next = allSelected ? [] : MEM_SOURCES.map(s => ({ site: s.site, source: s.source }));
+                renderMemSourceChips(containerId, next);
+            });
+            container.appendChild(toggleAll);
+        }
+
+        /**
+         * 从 chip 容器收集 sites 配置（每个选中的 chip 一项，不合并 'all'）。
+         * 合并 'all' 会导致 renderMemSourceChips 用 'site:all' 作为 key 匹配具体 chip 失败，
+         * 同 site 选第二个时第一个被清除。后端 List[str] 按位置配对，同 site 多次出现可正常处理。
+         */
+        function collectMemSitesFromChips(containerId) {
+            const container = document.getElementById(containerId);
+            if (!container) return [];
+            const sites = [];
+            container.querySelectorAll('.mem-source-chip[data-active="1"]').forEach(chip => {
+                sites.push({ site: chip.dataset.site, source: chip.dataset.source });
+            });
+            return sites;
+        }
+
+        /**
+         * 从 sites 列表展开为完整 chip 选中态（用于回填）。
+         * source='all' → 展开为该 site 全部 source；其他 → 单项。
+         */
+        function sitesToChipSelected(sites) {
+            const result = [];
+            (sites || []).forEach(s => {
+                const site = (s && s.site != null) ? s.site : 'mem';
+                const src = (s && s.source) || 'bz';
+                if (src === 'all') {
+                    (MEM_SOURCE_OPTIONS[site] || []).forEach(o => result.push({ site, source: o.value }));
+                } else {
+                    result.push({ site, source: src });
+                }
+            });
+            return result;
+        }
+
         function setupMemScan() {
-            // 应急管理部标准扫描（直连 mem.gov.cn 静态 HTML，无 WAF，无分类筛选）
+            // 政策法规扫描（应急管理部 / 市场监管总局，直连静态 HTML / jpaas API，无 WAF）
+            // 默认选中 mem+bz（应急管理部·标准文本）
+            renderMemSourceChips('mem-source-chips', [{ site: 'mem', source: 'bz' }]);
+
             document.getElementById('mem-scan-btn')?.addEventListener('click', async () => {
                 const pages = document.getElementById('mem-pages').value;
                 const scanOnly = document.getElementById('mem-scan-only').checked;
-                const source = document.getElementById('mem-source').value;
+                const sites = collectMemSitesFromChips('mem-source-chips');
+
+                if (sites.length === 0) {
+                    showToast('请至少选择一个扫描内容', 'warning');
+                    return;
+                }
 
                 const btn = document.getElementById('mem-scan-btn');
                 btn.disabled = true;
@@ -3097,7 +3203,11 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     const incr = document.getElementById('mem-incr').checked;
                     const state = document.getElementById('mem-state').value;
                     const params = new URLSearchParams();
-                    params.set('source', source);
+                    // 后端按位置配对：site 与 source 数组顺序一致
+                    sites.forEach(s => {
+                        params.append('site', s.site);
+                        params.append('source', s.source);
+                    });
                     params.set('max_results', parseInt(pages));
                     params.set('scan_only', scanOnly);
                     params.set('incr', incr);
@@ -3119,7 +3229,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     showToast('失败: ' + (e.message || String(e)), 'error');
                 } finally {
                     btn.disabled = false;
-                    btn.innerHTML = '<i class="fa fa-play mr-2"></i>开始扫描应急管理部标准/规章';
+                    btn.innerHTML = '<i class="fa fa-play mr-2"></i>开始扫描政策法规';
                 }
             });
         }
@@ -3240,6 +3350,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 renderTtCnlTags('all-tt-cnl-tags', allTtCnlCodes);
             });
 
+            // 联合扫描 MEM 内容 chips（默认选中 mem+bz）
+            renderMemSourceChips('all-mem-source-chips', [{ site: 'mem', source: 'bz' }]);
+
             document.getElementById('all-scan-btn').addEventListener('click', async () => {
                 const gbChecked = document.getElementById('all-gb-check').checked;
                 const hbChecked = document.getElementById('all-hb-check').checked;
@@ -3271,9 +3384,18 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 const ttConfig = ttChecked ? {
                     cnl1_codes: allTtCnlCodes.length > 0 ? [...allTtCnlCodes] : null
                 } : {};
-                const memConfig = memChecked ? {
-                    source: document.getElementById('all-mem-source').value
-                } : {};
+                const memConfig = (() => {
+                    if (!memChecked) return {};
+                    const memSites = collectMemSitesFromChips('all-mem-source-chips');
+                    if (memSites.length === 0) {
+                        showToast('政策法规：请至少选择一个扫描内容', 'warning');
+                        return null;
+                    }
+                    return memSites.length === 1
+                        ? { site: memSites[0].site, source: memSites[0].source }
+                        : { sites: memSites };
+                })();
+                if (memChecked && memConfig === null) return;
                 const btn = document.getElementById('all-scan-btn');
                 btn.disabled = true;
                 btn.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i>处理中...';
@@ -3312,8 +3434,18 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
         }
 
         function getTaskTitle(task) {
-            const typeNames = { 'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准', 'mem': '应急管理部标准', 'search': '搜索下载' };
-            const base = typeNames[task.std_type] || '标准';
+            const typeNames = { 'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准', 'mem': '政策法规', 'search': '搜索下载' };
+            let base = typeNames[task.std_type] || '标准';
+            // mem 类型按 site 区分（多站点用 + 合并显示）
+            if (task.std_type === 'mem') {
+                const _MEM_LABELS = { 'mem': '应急管理部标准', 'samr': '市场监管总局法规' };
+                const sites = task.mem_sites;
+                if (Array.isArray(sites) && sites.length > 1) {
+                    base = sites.map(s => _MEM_LABELS[s.site] || '政策法规').join('+');
+                } else {
+                    base = task.mem_site === 'samr' ? '市场监管总局法规' : '应急管理部标准';
+                }
+            }
             const kw = task.keyword_group || '';
             const incr = task.incr ? ' <i class="fa fa-plus-circle text-blue-400 text-xs ml-2" title="增量扫描"></i>' : '';
             if (kw) return `${base} · ${displayGroupName(kw)}${incr}`;
@@ -4693,7 +4825,17 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     return;
                 }
 
-                const typeNames = { 'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准', 'mem': '应急管理部标准', 'all': '联合扫描' };
+                const typeNames = { 'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准', 'mem': '政策法规', 'all': '联合扫描' };
+                // mem 类型按 site 区分显示（多站点用 + 合并）
+                const memLabel = (job) => {
+                    if (job.type !== 'mem') return typeNames[job.type];
+                    const cfg = job.config || {};
+                    const _MEM_LABELS = { 'mem': '应急管理部标准', 'samr': '市场监管总局法规' };
+                    if (Array.isArray(cfg.mem_sites) && cfg.mem_sites.length > 0) {
+                        return cfg.mem_sites.map(s => _MEM_LABELS[s.site] || '政策法规').join('+');
+                    }
+                    return cfg.mem_site === 'samr' ? '市场监管总局法规' : '应急管理部标准';
+                };
 
                 container.innerHTML = data.jobs.map(job => `
                     <div class="task-card bg-white rounded-xl shadow-sm p-4 border border-gray-100">
@@ -4709,7 +4851,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                         <div class="space-y-1.5 mb-3">
                             <div class="flex items-center text-xs text-gray-500">
                                 <i class="fa fa-file-text-o mr-2 w-4"></i>
-                                <span>类型：${typeNames[job.type]}</span>
+                                <span>类型：${memLabel(job)}</span>
                             </div>
                             <div class="flex items-center text-xs text-gray-500">
                                 <i class="fa fa-calendar-o mr-2 w-4"></i>
@@ -4787,8 +4929,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             // TT 默认 200，与主面板一致
             document.getElementById('schedule-tt-pages').value = 200;
             document.getElementById('schedule-mem-pages').value = 500;
-            document.getElementById('schedule-mem-source').value = 'bz';
-            document.getElementById('schedule-all-mem-source').value = 'bz';
+            // MEM 默认来源 mem 勾选、samr 不勾选；栏目按勾选来源动态填充
+            renderMemSourceChips('schedule-mem-source-chips', [{ site: 'mem', source: 'bz' }]);
+            renderMemSourceChips('schedule-all-mem-source-chips', [{ site: 'mem', source: 'bz' }]);
             // 状态/仅扫描/增量 默认值（与主面板一致：现行 / 仅扫描关 / 增量开）
             ['gb', 'hb', 'db', 'tt', 'mem', 'all'].forEach(t => {
                 const stateEl = document.getElementById(`schedule-${t}-state`);
@@ -4871,9 +5014,15 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             applyCommon('tt');
                         } else if (job.type === 'mem') {
                             document.getElementById('schedule-mem-pages').value = config.max_results || 500;
-                            const memSrc = config.mem_source || config.source || 'bz';
-                            const memValid = ['bz', 'gz', 'all'].includes(memSrc) ? memSrc : 'bz';
-                            document.getElementById('schedule-mem-source').value = memValid;
+                            // 回填 chips：优先用 mem_sites，回退单 site 字段
+                            let memSelected;
+                            if (Array.isArray(config.mem_sites) && config.mem_sites.length > 0) {
+                                memSelected = sitesToChipSelected(config.mem_sites);
+                            } else {
+                                const memSite = (config.mem_site === 'samr') ? 'samr' : 'mem';
+                                memSelected = sitesToChipSelected([{ site: memSite, source: config.mem_source || config.source || 'bz' }]);
+                            }
+                            renderMemSourceChips('schedule-mem-source-chips', memSelected);
                             applyCommon('mem');
                         } else if (job.type === 'all') {
                             const scanTypes = config.scan_types || ['gb', 'hb', 'db'];
@@ -4883,9 +5032,15 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             document.getElementById('schedule-all-tt-check').checked = scanTypes.includes('tt');
                             document.getElementById('schedule-all-mem-check').checked = scanTypes.includes('mem');
                             document.getElementById('schedule-all-max-results').value = config.max_results || 500;
-                            const memSrc2 = config.mem_source || config.source || 'bz';
-                            const memValid2 = ['bz', 'gz', 'all'].includes(memSrc2) ? memSrc2 : 'bz';
-                            document.getElementById('schedule-all-mem-source').value = memValid2;
+                            // 回填 chips：优先用 mem_sites，回退单 site 字段
+                            let memSelected2;
+                            if (Array.isArray(config.mem_sites) && config.mem_sites.length > 0) {
+                                memSelected2 = sitesToChipSelected(config.mem_sites);
+                            } else {
+                                const memSite2 = (config.mem_site === 'samr') ? 'samr' : 'mem';
+                                memSelected2 = sitesToChipSelected([{ site: memSite2, source: config.mem_source || config.source || 'bz' }]);
+                            }
+                            renderMemSourceChips('schedule-all-mem-source-chips', memSelected2);
                             scheduleAllIndustries = config.industries || [];
                             scheduleAllProvinces = config.provinces || [];
                             scheduleAllTtCnlCodes = Array.isArray(config.cnl1_codes) ? [...config.cnl1_codes] : [];
@@ -5101,7 +5256,17 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 readCommon('tt');
             } else if (type === 'mem') {
                 config.max_results = parseInt(document.getElementById('schedule-mem-pages').value) || 500;
-                config.mem_source = document.getElementById('schedule-mem-source').value;
+                const memSites = collectMemSitesFromChips('schedule-mem-source-chips');
+                if (memSites.length === 0) {
+                    showToast('政策法规：请至少选择一个扫描内容', 'warning');
+                    return;
+                }
+                if (memSites.length === 1) {
+                    config.mem_site = memSites[0].site;
+                    config.mem_source = memSites[0].source;
+                } else {
+                    config.mem_sites = memSites;
+                }
                 readCommon('mem');
             } else if (type === 'all') {
                 const scanTypes = [];
@@ -5115,7 +5280,19 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 config.industries = scheduleAllIndustries.length > 0 ? scheduleAllIndustries : null;
                 config.provinces = scheduleAllProvinces.length > 0 ? scheduleAllProvinces : null;
                 config.cnl1_codes = scheduleAllTtCnlCodes.length > 0 ? [...scheduleAllTtCnlCodes] : null;
-                config.mem_source = document.getElementById('schedule-all-mem-source').value;
+                if (scanTypes.includes('mem')) {
+                    const memSites = collectMemSitesFromChips('schedule-all-mem-source-chips');
+                    if (memSites.length === 0) {
+                        showToast('政策法规：请至少选择一个扫描内容', 'warning');
+                        return;
+                    }
+                    if (memSites.length === 1) {
+                        config.mem_site = memSites[0].site;
+                        config.mem_source = memSites[0].source;
+                    } else {
+                        config.mem_sites = memSites;
+                    }
+                }
                 readCommon('all');
             }
 
@@ -5389,6 +5566,8 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             document.getElementById('cancel-schedule-btn').addEventListener('click', closeScheduleModal);
             document.getElementById('save-schedule-btn').addEventListener('click', saveSchedule);
             document.getElementById('schedule-type').addEventListener('change', updateScheduleTypeConfig);
+
+            // MEM chips 已自包含点击切换逻辑，无需额外事件绑定
 
             document.getElementById('schedule-modal').addEventListener('click', (e) => {
                 if (e.target.id === 'schedule-modal') {

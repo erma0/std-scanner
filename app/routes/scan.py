@@ -41,7 +41,7 @@ class ScanAllRequest(BaseModel):
     hb_config: dict = Field(default={}, description="行标额外配置")
     db_config: dict = Field(default={}, description="地标额外配置")
     tt_config: dict = Field(default={}, description="团体标准额外配置（如 cnl1_codes）")
-    mem_config: dict = Field(default={}, description="应急管理部标准额外配置")
+    mem_config: dict = Field(default={}, description="政策法规额外配置（含 site: mem/samr 与 source）")
 
 
 def _check_max_results(keyword_group: str, max_results: int):
@@ -69,7 +69,18 @@ def _create_scan_task(scan_type, task_id_prefix, config, resume_task_id=None):
     """
     task_id = resume_task_id or f"{task_id_prefix}_{int(time.time())}"
 
-    type_label = {'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准', 'mem': '应急管理部标准'}[scan_type]
+    # mem 类型按 site 区分标签：应急管理部 / 市场监管总局
+    _MEM_LABELS = {'mem': '应急管理部标准', 'samr': '市场监管总局法规'}
+    if scan_type == 'mem':
+        # 多 site 模式：合并标签
+        sites_cfg = config.get('sites')
+        if isinstance(sites_cfg, list) and len(sites_cfg) > 1:
+            labels = [_MEM_LABELS.get(t.get('site'), '政策法规') for t in sites_cfg]
+            type_label = '+'.join(labels)
+        else:
+            type_label = _MEM_LABELS.get(config.get('site'), '应急管理部标准')
+    else:
+        type_label = {'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准'}[scan_type]
 
     retry_config = {
         'keyword_group': config.get('keyword_group', '安全生产'),
@@ -81,6 +92,16 @@ def _create_scan_task(scan_type, task_id_prefix, config, resume_task_id=None):
         'provinces': config.get('provinces'),
         'cnl1_codes': config.get('cnl1_codes'),
     }
+    # mem 类型透传 site/sites，便于前端任务标题与重试使用
+    if scan_type == 'mem':
+        sites_cfg = config.get('sites')
+        if isinstance(sites_cfg, list) and len(sites_cfg) > 0:
+            retry_config['mem_sites'] = sites_cfg
+            # 兼容字段：取首个 site 供旧逻辑（如通知标题）使用
+            retry_config['mem_site'] = sites_cfg[0].get('site', 'mem')
+        else:
+            retry_config['mem_site'] = config.get('site', 'mem')
+            retry_config['mem_source'] = config.get('source', 'bz')
 
     if not task_manager.exists(task_id):
         task_manager.create(task_id, {
@@ -242,7 +263,8 @@ async def scan_tt_standards_api(
 
 @router.post("/api/scan/mem")
 async def scan_mem_standards_api(
-    source: str = Query('bz', description="数据源：bz=标准文本 | gz=规章 | all=两源并发扫描"),
+    site: List[str] = Query(['mem'], description="网站列表：mem=应急管理部 | samr=市场监管总局（支持多选）"),
+    source: List[str] = Query(['bz'], description="数据源列表，与 site 按位置配对（mem: bz/gz/all；samr: flfg/aqjsgf/all）"),
     max_results: int = 500,
     scan_only: bool = False,
     incr: bool = False,
@@ -250,24 +272,57 @@ async def scan_mem_standards_api(
     keyword_group: str = '安全生产',
     std_state: str = '现行',
 ):
-    """应急管理部标准/规章扫描。直连 mem.gov.cn 静态 HTML，无 WAF。
+    """政策法规扫描（应急管理部 / 市场监管总局），直连静态 HTML / jpaas API，无 WAF。
 
-    - source='bz' 标准文本：mem.gov.cn 不提供状态字段，所有标准按"现行"处理
-      ("现行"/"全部" 返回全部；"废止" 返回空)
-    - source='gz' 规章：从标题识别"已废止"状态
-    - source='all' 并发扫描 bz + gz 两源，合并结果
+    - 支持多 site 多 source：site 与 source 按位置配对
+      例：site=mem&site=samr&source=bz&source=aqjsgf → 同时扫描两个站点
+    - 单 site 单 source 时退化为原行为
+    - mem: source=bz 标准文本 | gz 规章 | all 两源并发
+    - samr: source=flfg 法律法规 | aqjsgf 安全技术规范 | all 两源并发
     """
-    if source not in ('bz', 'gz', 'all'):
-        raise HTTPException(status_code=400, detail="source 必须为 'bz'、'gz' 或 'all'")
+    # 长度对齐：source 不足时用首项补齐，过长截断
+    if len(source) < len(site):
+        source = source + [source[0] if source else 'bz'] * (len(site) - len(source))
+    elif len(source) > len(site):
+        source = source[:len(site)]
+
+    # 校验并构造 sites 列表
+    valid_sites = []
+    for s, src in zip(site, source):
+        if s not in ('mem', 'samr'):
+            raise HTTPException(status_code=400, detail=f"site 必须为 'mem' 或 'samr'，得到: {s}")
+        if s == 'mem':
+            src = src if src in ('bz', 'gz', 'all') else 'bz'
+        else:
+            src = src if src in ('flfg', 'aqjsgf', 'all') else 'aqjsgf'
+        valid_sites.append({'site': s, 'source': src})
+
+    if not valid_sites:
+        raise HTTPException(status_code=400, detail="至少需要一个 site")
+
     _check_max_results(keyword_group, max_results)
-    config = {
-        'max_results': max_results,
-        'incr': incr,
-        'keyword_group': keyword_group,
-        'scan_only': scan_only,
-        'std_state': std_state,
-        'source': source,
-    }
+
+    # 单 site：保持原 config 结构（向后兼容）
+    # 多 site：使用 sites 列表
+    if len(valid_sites) == 1:
+        config = {
+            'max_results': max_results,
+            'incr': incr,
+            'keyword_group': keyword_group,
+            'scan_only': scan_only,
+            'std_state': std_state,
+            'site': valid_sites[0]['site'],
+            'source': valid_sites[0]['source'],
+        }
+    else:
+        config = {
+            'max_results': max_results,
+            'incr': incr,
+            'keyword_group': keyword_group,
+            'scan_only': scan_only,
+            'std_state': std_state,
+            'sites': valid_sites,
+        }
     return _create_scan_task('mem', 'mem', config, resume_task_id=resume_task_id)
 
 

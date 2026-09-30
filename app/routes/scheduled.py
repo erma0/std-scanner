@@ -45,9 +45,32 @@ async def _do_scheduled_scan_impl(scan_type, max_results, keyword_group, job_cfg
         hb_cfg = {'industries': job_cfg.get('industries')}
         db_cfg = {'provinces': job_cfg.get('provinces')}
         tt_cfg = {'cnl1_codes': job_cfg.get('cnl1_codes')}
-        # MEM 数据源：bz 标准文本 | gz 规章 | all 两源并发（默认 bz）
-        mem_src = job_cfg.get('mem_source', 'bz')
-        mem_cfg = {'source': mem_src if mem_src in ('bz', 'gz', 'all') else 'bz'}
+        # MEM 数据源：支持 sites 列表（多站点）或 site/source（单站点），默认 mem+bz
+        mem_sites_cfg = job_cfg.get('mem_sites')
+        if isinstance(mem_sites_cfg, list) and len(mem_sites_cfg) > 0:
+            # 多站点模式：校验并构造 sites
+            valid = []
+            for t in mem_sites_cfg:
+                s = t.get('site', 'mem')
+                src = t.get('source', 'bz')
+                if s == 'samr':
+                    src = src if src in ('flfg', 'aqjsgf', 'all') else 'aqjsgf'
+                else:
+                    s = 'mem'
+                    src = src if src in ('bz', 'gz', 'all') else 'bz'
+                valid.append({'site': s, 'source': src})
+            mem_cfg = {'sites': valid} if len(valid) > 1 else (
+                {'site': valid[0]['site'], 'source': valid[0]['source']} if valid else {'site': 'mem', 'source': 'bz'}
+            )
+        else:
+            # 单站点模式（向后兼容）
+            mem_site = job_cfg.get('mem_site', 'mem')
+            mem_src = job_cfg.get('mem_source', 'bz')
+            if mem_site == 'samr':
+                mem_src = mem_src if mem_src in ('flfg', 'aqjsgf', 'all') else 'aqjsgf'
+            else:
+                mem_src = mem_src if mem_src in ('bz', 'gz', 'all') else 'bz'
+            mem_cfg = {'site': mem_site if mem_site in ('mem', 'samr') else 'mem', 'source': mem_src}
 
         from ._utils import create_combined_scan_tasks
         task_ids, scan_fn = create_combined_scan_tasks(
@@ -68,6 +91,14 @@ async def _do_scheduled_scan_impl(scan_type, max_results, keyword_group, job_cfg
                 fail_types.append(f"{tid}:任务丢失")
                 continue
             label = {'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准', 'mem': '应急管理部标准'}.get(tk.get('std_type', ''), tk.get('std_type'))
+            # mem 类型按 site 区分标签（多站点用 + 合并）
+            if tk.get('std_type') == 'mem':
+                _MEM_LABELS = {'mem': '应急管理部标准', 'samr': '市场监管总局法规'}
+                _sites = tk.get('mem_sites')
+                if isinstance(_sites, list) and len(_sites) > 1:
+                    label = '+'.join(_MEM_LABELS.get(s.get('site'), '政策法规') for s in _sites)
+                elif tk.get('mem_site') == 'samr':
+                    label = '市场监管总局法规'
             if tk.get('status') != 'completed':
                 fail_types.append(f"{label}:{tk.get('message', '')[:30]}")
             elif (tk.get('stats') or {}).get('scanned', 0) == 0 and not tk.get('std_items'):
@@ -118,10 +149,34 @@ async def _do_scheduled_scan_impl(scan_type, max_results, keyword_group, job_cfg
             'provinces': job_cfg.get('provinces'),
             'cnl1_codes': job_cfg.get('cnl1_codes'),
         }
-        # MEM 数据源：bz 标准文本 | gz 规章 | all 两源并发（默认 bz）
+        # MEM 数据源：支持 sites 列表（多站点）或 site/source（单站点），默认 mem+bz
         if scan_type == 'mem':
-            mem_src = job_cfg.get('mem_source', 'bz')
-            config['source'] = mem_src if mem_src in ('bz', 'gz', 'all') else 'bz'
+            mem_sites_cfg = job_cfg.get('mem_sites')
+            if isinstance(mem_sites_cfg, list) and len(mem_sites_cfg) > 0:
+                valid = []
+                for t in mem_sites_cfg:
+                    s = t.get('site', 'mem')
+                    src = t.get('source', 'bz')
+                    if s == 'samr':
+                        src = src if src in ('flfg', 'aqjsgf', 'all') else 'aqjsgf'
+                    else:
+                        s = 'mem'
+                        src = src if src in ('bz', 'gz', 'all') else 'bz'
+                    valid.append({'site': s, 'source': src})
+                if len(valid) == 1:
+                    config['site'] = valid[0]['site']
+                    config['source'] = valid[0]['source']
+                elif len(valid) > 1:
+                    config['sites'] = valid
+            else:
+                mem_site = job_cfg.get('mem_site', 'mem')
+                mem_src = job_cfg.get('mem_source', 'bz')
+                if mem_site == 'samr':
+                    config['site'] = 'samr'
+                    config['source'] = mem_src if mem_src in ('flfg', 'aqjsgf', 'all') else 'aqjsgf'
+                else:
+                    config['site'] = 'mem'
+                    config['source'] = mem_src if mem_src in ('bz', 'gz', 'all') else 'bz'
         standards = await run_scan_pipeline(scan_type, config,
                                             task_id=task_id, task_manager=_task_manager)
         _log.info(f"定时{scan_type.upper()}扫描完成: {len(standards)} 条")
@@ -138,6 +193,17 @@ def run_scheduled_scan(job_id: str, job_config: dict):
 
         if not is_all:
             task_id = f"{job_id}_{int(time.time())}"
+            # mem 类型按 site 区分任务标签：mem=应急管理部 | samr=市场监管总局
+            # 多站点模式下保存 mem_sites 列表，同时取首个 site 作为兼容 mem_site
+            _mem_extra = {}
+            if scan_type == 'mem':
+                _mem_sites_cfg = job_cfg.get('mem_sites')
+                if isinstance(_mem_sites_cfg, list) and len(_mem_sites_cfg) > 0:
+                    _mem_extra['mem_sites'] = _mem_sites_cfg
+                    _mem_extra['mem_site'] = _mem_sites_cfg[0].get('site', 'mem')
+                else:
+                    _mem_extra['mem_site'] = job_cfg.get('mem_site', 'mem')
+                    _mem_extra['mem_source'] = job_cfg.get('mem_source', 'bz')
             _task_manager.create(task_id, {
                 "task_id": task_id,
                 "status": "running",
@@ -147,6 +213,7 @@ def run_scheduled_scan(job_id: str, job_config: dict):
                 "start_time": time.time(),
                 "scheduled_job_id": job_id,
                 "std_type": scan_type,
+                **_mem_extra,
                 "std_items": [],
                 "keyword_group": job_cfg.get('keyword_group', '安全生产'),
                 "max_results": job_cfg.get('max_results', 500),

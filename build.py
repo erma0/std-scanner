@@ -108,6 +108,10 @@ def build(onefile=False):
 
     # 隐式导入（PyInstaller 无法自动检测的模块）
     hidden_imports = [
+        # 通过 app/scanner/__init__.py 的 _SUBMODULE_MAP + importlib 动态导入，
+        # 静态分析发现不了；实际打包时常靠 routes 里的静态 import 兜住，这里显式声明
+        "app.scanner.mem_scan",
+        "app.scanner.samr_scan",
         "ddddocr",
         "onnxruntime",
         "PIL",

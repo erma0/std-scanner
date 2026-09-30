@@ -693,6 +693,59 @@ async def download_mem_standards(
         await asyncio.gather(*[_do_one(s) for s in standards])
 
 
+async def _run_multi_sites(
+    sites_cfg: list,
+    config: dict,
+    task_id: str = None,
+    task_manager=None,
+    progress_base: int = 0,
+    progress_per_scan: int = 40,
+    progress_per_download: int = 60,
+) -> list:
+    """多站点顺序执行：每个 (site, source) 分配独立的进度范围，合并结果。
+
+    sites_cfg: [{'site': 'mem', 'source': 'bz'}, {'site': 'samr', 'source': 'aqjsgf'}, ...]
+    其余 config 字段（max_results/incr/keyword_group/scan_only/std_state）对所有子管线共享。
+    """
+    n = len(sites_cfg)
+    # 每个子管线分配均等的 scan/download 进度范围
+    sub_scan = max(1, progress_per_scan // n)
+    sub_dl = max(1, progress_per_download // n)
+
+    all_standards = []
+    for idx, target in enumerate(sites_cfg):
+        site = target.get('site', 'mem')
+        source = target.get('source', 'bz')
+        # 构造子管线 config（保留共享字段，覆盖 site/source）
+        sub_config = dict(config)
+        sub_config['site'] = site
+        sub_config['source'] = source
+        sub_config.pop('sites', None)  # 防止递归
+
+        # 子管线进度范围
+        sub_base = progress_base + idx * (sub_scan + sub_dl)
+
+        _log.info(f"[MEM-MULTI] ({idx+1}/{n}) 执行 site={site} source={source}")
+        standards = await run_mem_pipeline(
+            config=sub_config, task_id=task_id, task_manager=task_manager,
+            progress_base=sub_base, progress_per_scan=sub_scan, progress_per_download=sub_dl,
+        )
+        all_standards.extend(standards)
+
+    # 合并最终状态
+    if task_manager and task_id:
+        from app.scanner.utils import compute_download_stats
+        task_manager.update(task_id,
+            progress=progress_base + progress_per_scan + progress_per_download,
+            dl_progress=100,
+            message=f'政策法规下载完成({len(all_standards)}条)',
+            stats=compute_download_stats(all_standards),
+            std_items=all_standards)
+
+    _log.info(f"[MEM-MULTI] 多站点完成: 共 {len(all_standards)} 条")
+    return all_standards
+
+
 # ==================== 统一管线 ====================
 async def run_mem_pipeline(
     config: dict,
@@ -702,7 +755,31 @@ async def run_mem_pipeline(
     progress_per_scan: int = 40,
     progress_per_download: int = 60,
 ) -> list:
-    """应急管理部标准/规章统一管线：scan + download，全部基于 httpx。"""
+    """政策法规统一管线：scan + download，全部基于 httpx。
+
+    支持三种调用方式（优先级递减）：
+    1. config['sites']: List[Dict[site, source]] — 多站点并发，顺序执行并合并结果
+    2. config['site']=='samr' — 分发到市场监管总局管线
+    3. 默认 — 应急管理部管线
+    """
+    # === 多站点模式：config['sites'] = [{'site': 'mem', 'source': 'bz'}, {'site': 'samr', 'source': 'aqjsgf'}] ===
+    sites_cfg = config.get('sites')
+    if isinstance(sites_cfg, list) and len(sites_cfg) > 1:
+        return await _run_multi_sites(
+            sites_cfg=sites_cfg, config=config, task_id=task_id, task_manager=task_manager,
+            progress_base=progress_base, progress_per_scan=progress_per_scan,
+            progress_per_download=progress_per_download,
+        )
+
+    # 市场监管总局政策法规：分发到独立管线（与 MEM 共用 scan_type='mem'）
+    if config.get('site') == 'samr':
+        from app.scanner.samr_scan import run_samr_pipeline
+        return await run_samr_pipeline(
+            config=config, task_id=task_id, task_manager=task_manager,
+            progress_base=progress_base, progress_per_scan=progress_per_scan,
+            progress_per_download=progress_per_download,
+        )
+
     from app.scanner.change_tracker import compare_snapshot
     from app.scanner.utils import compute_download_stats
 
