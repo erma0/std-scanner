@@ -12,11 +12,39 @@ _log = logging.getLogger('std_scraper')
 
 from config.settings import get_output_dir
 from config.manager import load_config
+from app.helpers import safe_filename
 
 # ==================== 常量 ====================
 _CACHE_TTL_SECONDS = 600  # 去重缓存窗口（秒）
-# 去重识别的文件后缀（按 stem 跨格式匹配，同一标准的不同格式视为已存在）
+# 去重识别的文件后缀：按文件名主干跨格式匹配，同一标准的不同格式（PDF/Word）视为已存在
 _DEDUP_EXTENSIONS = ('.pdf', '.doc', '.docx')
+
+
+# ==================== 匹配键 ====================
+def dedup_key(filename: str) -> str:
+    """计算去重匹配键：文件名归一化（safe_filename）后取扩展名前的主干并小写。
+
+    生成与扫描共用同一口径，因此：
+    1. 全角/半角、空格、横杠、括号等历史命名差异不会造成重复下载；
+    2. 同一标准的主干相同，跨格式（.pdf/.doc/.docx）视为同一份。
+    """
+    stem = os.path.splitext(safe_filename(filename))[0]
+    return stem.strip().lower()
+
+
+class ExistingFilesSet(set):
+    """去重文件名集合：内部只存归一化主干键，成员判断自动按主干命中。"""
+
+    def __contains__(self, filename):
+        return set.__contains__(self, dedup_key(filename))
+
+    def add(self, filename):
+        set.add(self, dedup_key(filename))
+
+    def update(self, filenames):
+        for name in filenames:
+            self.add(name)
+
 
 # ==================== 缓存状态 ====================
 _existing_files_cache = None
@@ -63,14 +91,10 @@ def get_existing_dirs() -> list:
 
 # ==================== 递归扫描 ====================
 def _scandir_recursive(path: str) -> set:
-    """递归扫描目录，返回所有支持去重的文件名集合（含后缀，统一小写）。
+    """递归扫描目录，返回所有支持去重的文件名集合（含后缀，原始大小写）。
 
-    注：
-    1. 返回的文件名一律小写化，避免大写扩展名（如 .PDF）与程序生成
-       的 .pdf 不匹配导致去重失效（详见 XF 588-2012 案例的修复）。
-    2. 文件名会 strip 前后空格，避免历史遗留的带空格文件名（如
-       ' 煤矿安全规程.pdf'）导致去重失效、重复下载。
-    调用方比较时也必须用 filename.strip().lower()。
+    匹配键（归一化主干、小写、跨格式）由 ExistingFilesSet/dedup_key 统一处理，
+    这里只负责按 _DEDUP_EXTENSIONS 过滤与递归收集。
     """
     result = set()
     try:
@@ -81,7 +105,7 @@ def _scandir_recursive(path: str) -> set:
                 elif entry.is_file(follow_symlinks=False):
                     _, ext = os.path.splitext(entry.name)
                     if ext.lower() in _DEDUP_EXTENSIONS:
-                        result.add(entry.name.strip().lower())
+                        result.add(entry.name)
     except (PermissionError, OSError):
         pass
     return result
@@ -111,8 +135,9 @@ def _scan_single_dir(path: str) -> tuple:
 
 def get_existing_files(force_refresh: bool = False) -> set:
     """
-    获取所有已有文件名集合（用于去重，支持 pdf/doc/docx）。
+    获取所有已存在的标准集合（按归一化主干去重，PDF/Word 跨格式合并）。
     缓存窗口由 _CACHE_TTL_SECONDS 控制，通过文件夹 mtime 判断是否需重扫。
+    集合成员为主干键：调用方直接用完整文件名（含后缀）判断即可命中。
     """
     global _existing_files_cache, _existing_files_last_scan, _existing_files_mtime, _existing_dirs_counts
 
@@ -135,7 +160,7 @@ def get_existing_files(force_refresh: bool = False) -> set:
         if not need:
             return cached
 
-    existing = set()
+    existing = ExistingFilesSet()
     dirs = [str(get_output_dir())] + get_existing_dirs()
     counts = {}
 
@@ -158,7 +183,7 @@ def get_existing_files(force_refresh: bool = False) -> set:
         _existing_dirs_counts = counts
 
     elapsed = time.time() - start_time
-    _log.info(f"去重扫描完成: {len(existing)} 个文档 (耗时 {elapsed:.1f}s)")
+    _log.info(f"去重扫描完成: {len(existing)} 个标准 (耗时 {elapsed:.1f}s)")
     return existing
 
 
@@ -170,11 +195,11 @@ def get_existing_dir_counts() -> dict:
 
 
 def add_to_existing_files_cache(filename: str):
-    """向缓存中添加新下载的文件名（统一 strip + 小写化，与扫描保持一致）"""
+    """向缓存中添加新下载的文件名（按归一化主干键，与扫描保持一致）"""
     global _existing_files_cache
     with _cache_lock:
         if _existing_files_cache is not None:
-            _existing_files_cache.add(filename.strip().lower())
+            _existing_files_cache.add(filename)
 
 
 # ==================== watchfiles 实时监控 ====================
@@ -211,7 +236,7 @@ def start_file_watcher():
                             fname = os.path.basename(change[1])
                             _, ext = os.path.splitext(fname)
                             if ext.lower() in _DEDUP_EXTENSIONS:
-                                _existing_files_cache.add(fname.strip().lower())
+                                _existing_files_cache.add(fname)
         except Exception as e:
             _log.warning(f"文件监控异常退出: {e}")
         finally:

@@ -4,6 +4,7 @@
 """
 import logging
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -97,6 +98,19 @@ _SPACE_NORMALIZE_TABLE = str.maketrans({
     '\ufeff': '',   # BOM / ZERO WIDTH NO-BREAK SPACE
 })
 
+# 半角标点 → 全角（中文文件名一致性；同时覆盖 Windows 非法字符，避免被替换为下划线）
+# 例如 '第5部分: 智能协同巡检' → '第5部分： 智能协同巡检'
+_PUNCT_NORMALIZE_TABLE = str.maketrans({
+    '(': '（', ')': '）',
+    ':': '：', '?': '？', '*': '＊', '"': '＂',
+    '<': '＜', '>': '＞', '|': '｜', '\\': '＼',
+})
+
+# 源站偶发把数字 1 录成字母 l/I（如 hbba 的 'GA/T 2075.l-2023'、"第l部分"），
+# 仅在数字语境修正（小数点后的部分号、"第X部分"），避免误伤正常字母
+_CODE_CONFUSION_RE = re.compile(r'(?<=\.)\s*[lI](?=$|[\s\-])')
+_NAME_CONFUSION_RE = re.compile(r'第\s*[lI]\s*部分')
+
 
 def normalize_code(code):
     """归一化标准编号：清理 sacinfo 标签 + 统一 dash 字符
@@ -111,11 +125,23 @@ def normalize_code(code):
     if not code:
         return code
     code = code.replace('<sacinfo>', '').replace('</sacinfo>', '')
-    return code.translate(_DASH_NORMALIZE_TABLE)
+    code = code.translate(_DASH_NORMALIZE_TABLE)
+    # 源站偶发把部分号 1 录成 l/I（如 'GA/T 2075.l-2023'）
+    return _CODE_CONFUSION_RE.sub('1', code)
 
 
 def safe_filename(filename):
-    """清理文件名，避免特殊字符问题和路径遍历"""
+    """清理文件名，避免特殊字符问题和路径遍历
+
+    归一化规则（生成与去重匹配共用同一口径）：
+    1. dash 变体统一为半角 -，各类空格统一为半角空格；
+    2. 控制字符（换行/回车/制表符等）转空格——直接删除会让前后词粘连；
+    3. 半角标点转全角（括号/冒号等），Windows 非法字符用全角形式规避，
+       不再替换为下划线（如 '第5部分：智能协同巡检' 而非 '第5部分_智能协同巡检'）；
+    4. / 仍直接删除（保持 GB/T → GBT 的既有约定）；
+    5. 连续横杠折叠为一个（'规则--液压电梯' → '规则-液压电梯'）；
+    6. 连续空格压缩为一个，前后空格去除。
+    """
     if not filename:
         return 'unnamed'
 
@@ -126,21 +152,28 @@ def safe_filename(filename):
     # 避免标题中混入这些字符导致文件名不一致、去重失效
     filename = filename.translate(_SPACE_NORMALIZE_TABLE)
 
-    # 移除控制字符（换行符、回车、制表符等）— 搜索结果可能包含 \n
-    # Windows 文件名不允许这些字符，且会导致 os.replace 失败
-    filename = ''.join(c for c in filename if c >= ' ')
+    # 控制字符（换行符、回车、制表符等）转空格 — 搜索结果可能包含 \n，
+    # Windows 文件名不允许这些字符，直接删除会让前后词粘连
+    filename = ''.join(c if c >= ' ' else ' ' for c in filename)
 
-    invalid_chars = '<>:"/\\|?*'
-    # 移除 /（不替换为 _，保持 GBT 格式），其余非法字符替换为 _
-    for char in invalid_chars:
-        if char == '/':
-            filename = filename.replace(char, '')
-        else:
-            filename = filename.replace(char, '_')
+    # 半角标点转全角（含 Windows 非法字符的规避），保留可读性
+    filename = filename.translate(_PUNCT_NORMALIZE_TABLE)
+
+    # 移除 /（不替换为全角，保持 GB/T → GBT 的既有约定）
+    filename = filename.replace('/', '')
+
+    # 源站偶发把"第1部分"录成"第l部分"/"第I部分"（如 GA/T 2075.l-2023）
+    filename = _NAME_CONFUSION_RE.sub('第1部分', filename)
+    # 编号中的部分号同样修正（'GA/T 2075.l-2023' → 'GA/T 2075.1-2023'）
+    filename = _CODE_CONFUSION_RE.sub('1', filename)
 
     # 移除路径遍历
     while '..' in filename:
         filename = filename.replace('..', '__')
+
+    # 折叠连续横杠（含 em dash 归一化后产生的 '--'，如 '规则——液压电梯'）
+    while '--' in filename:
+        filename = filename.replace('--', '-')
 
     # 压缩连续空格为单个空格（避免标准名称中多空格导致文件名混乱）
     while '  ' in filename:

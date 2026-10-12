@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.helpers import safe_filename, format_bytes, format_duration, validate_path
+from app.helpers import safe_filename, format_bytes, format_duration, validate_path, normalize_code
 
 
 class TestSafeFilename:
@@ -28,6 +28,23 @@ class TestSafeFilename:
     def test_path_traversal_blocked(self):
         result = safe_filename('../etc/passwd')
         assert '..' not in result
+
+    def test_halfwidth_punct_to_fullwidth(self):
+        assert safe_filename('第5部分: 智能协同巡检') == '第5部分： 智能协同巡检'
+        assert safe_filename('规则(试行).pdf') == '规则（试行）.pdf'
+
+    def test_newline_to_space(self):
+        assert safe_filename('AB\nCD') == 'AB CD'
+
+    def test_collapse_repeated_chars(self):
+        assert safe_filename('电梯检验规则——液压电梯') == '电梯检验规则-液压电梯'
+        assert safe_filename('A    B') == 'A B'
+
+    def test_confused_part_number(self):
+        assert safe_filename('GA/T 2075.l-2023 第l部分:溶剂提取') == 'GAT 2075.1-2023 第1部分：溶剂提取'
+
+    def test_normalize_code_part_number(self):
+        assert normalize_code('GA/T 2075.l—2023') == 'GA/T 2075.1-2023'
 
 
 class TestFormatBytes:

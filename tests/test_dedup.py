@@ -10,12 +10,31 @@ config.manager.load_config = lambda: {
 }
 
 from app.dedup import get_existing_files, add_to_existing_files_cache, get_dedup_stats
+from app.dedup import ExistingFilesSet
 
 
 class TestGetExistingFiles:
     def test_returns_set(self):
         result = get_existing_files(force_refresh=True)
         assert isinstance(result, set)
+
+
+class TestCrossFormatMatch:
+    def test_docx_blocks_pdf(self):
+        files = ExistingFilesSet()
+        files.add('GB/T 1234-2020 标准名称.docx')
+        assert 'GBT 1234-2020 标准名称.pdf' in files
+        assert 'GBT 9999-2020 其他标准.pdf' not in files
+
+    def test_historical_naming_variant(self):
+        files = ExistingFilesSet()
+        files.add('TSG T7004-2012 电梯监督检验和定期检验规则--液压电梯.pdf')
+        assert 'TSG T7004-2012 电梯监督检验和定期检验规则-液压电梯.pdf' in files
+
+    def test_case_space_and_extension(self):
+        files = ExistingFilesSet()
+        files.add('  TSG G7002-2015 锅炉定期检验规则.PDF ')
+        assert 'tsg g7002-2015 锅炉定期检验规则.pdf' in files
 
 
 class TestAddToCache:
