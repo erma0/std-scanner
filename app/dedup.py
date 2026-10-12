@@ -31,6 +31,7 @@ _file_watcher_stop = None
 # ==================== 去重目录缓存 ====================
 _existing_dirs_cache = None
 _existing_dirs_lock = threading.Lock()
+_existing_dirs_counts = {}  # {目录: 递归扫描到的文档数}，与去重扫描同源
 
 
 def invalidate_existing_dirs_cache():
@@ -113,7 +114,7 @@ def get_existing_files(force_refresh: bool = False) -> set:
     获取所有已有文件名集合（用于去重，支持 pdf/doc/docx）。
     缓存窗口由 _CACHE_TTL_SECONDS 控制，通过文件夹 mtime 判断是否需重扫。
     """
-    global _existing_files_cache, _existing_files_last_scan, _existing_files_mtime
+    global _existing_files_cache, _existing_files_last_scan, _existing_files_mtime, _existing_dirs_counts
 
     # 快速路径：缓存有效直接返回快照
     with _cache_lock:
@@ -136,6 +137,7 @@ def get_existing_files(force_refresh: bool = False) -> set:
 
     existing = set()
     dirs = [str(get_output_dir())] + get_existing_dirs()
+    counts = {}
 
     _log.info("正在扫描文件夹用于去重检查...")
     start_time = time.time()
@@ -145,6 +147,7 @@ def get_existing_files(force_refresh: bool = False) -> set:
         for fut in futures:
             files, count = fut.result()
             existing.update(files)
+            counts[futures[fut]] = count
             if count > 0:
                 _log.debug(f"  扫描: {futures[fut]} → {count} 个文档")
 
@@ -152,10 +155,18 @@ def get_existing_files(force_refresh: bool = False) -> set:
         _existing_files_cache = existing
         _existing_files_last_scan = time.time()
         _existing_files_mtime = {d: _get_folder_mtime(d) for d in dirs if d and os.path.isdir(d)}
+        _existing_dirs_counts = counts
 
     elapsed = time.time() - start_time
     _log.info(f"去重扫描完成: {len(existing)} 个文档 (耗时 {elapsed:.1f}s)")
     return existing
+
+
+def get_existing_dir_counts() -> dict:
+    """返回各去重目录递归扫描到的文档数量（口径与去重扫描一致，必要时触发一次扫描）"""
+    get_existing_files()
+    with _cache_lock:
+        return dict(_existing_dirs_counts)
 
 
 def add_to_existing_files_cache(filename: str):

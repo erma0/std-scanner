@@ -203,21 +203,19 @@ async def browse_folder_api(path: str = ""):
 
 @router.get("/api/existing_dirs")
 async def get_existing_dirs_api():
-    """获取用于去重检查的本地文件夹列表"""
+    """获取用于去重检查的本地文件夹列表（文件数递归统计，与去重扫描口径一致）"""
     cfg = load_config()
     existing_dirs = cfg.get('download', {}).get('existing_dirs', [])
+    # app.dedup 含 watchfiles 导入开销，保持延迟导入
+    from app.dedup import get_existing_dir_counts
+    counts = get_existing_dir_counts()
     validated_dirs = []
     for d in existing_dirs:
         validated = {
             "path": d,
             "exists": os.path.isdir(d),
-            "file_count": 0
+            "file_count": counts.get(d, 0)
         }
-        if validated["exists"]:
-            try:
-                validated["file_count"] = len([f for f in os.listdir(d) if f.endswith('.pdf')])
-            except OSError:
-                pass
         validated_dirs.append(validated)
 
     return {"existing_dirs": validated_dirs}
