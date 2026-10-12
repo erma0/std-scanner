@@ -17,6 +17,8 @@
    - 详情页附件下载区（contentLeft0102box）提供 PDF
    - 部分条目列表 href 直接指向 PDF（无需访问详情页）
    - 状态：标题含"废止" → '废止'，否则 '现行'
+   - 注意：该栏目是历年全量归档（2005 年以来的旧版本也在列，且网站不标注废止），
+     扫描结束后统一由 _mark_superseded_status 按"替代清单 + 同号取新"把旧版标为 '废止'
 
 API 调用：
   GET /api-gateway/jpaas-publish-server/front/page/build/unit
@@ -140,9 +142,11 @@ _ARTICLE_ID_RE = re.compile(r'art_([a-f0-9]+)\.html')
 # 直接 PDF 文件名：P020230407313550673854.pdf → P020230407313550673854
 _PDF_FILENAME_RE = re.compile(r'/([^/]+)\.pdf$', re.IGNORECASE)
 
-# TSG 编号：TSG [ZTD]?\d+ - 年份（标题内可能含全角/半角括号、破折号变体）
+# TSG 编号：TSG [字母前缀]{0,2} 数字 - 年份（前缀含 G/Q/R/S/N/T/D/Z/ZB/ZF/RF 等）
 # 先做 dash 归一化再匹配
-_TSG_CODE_RE = re.compile(r'TSG\s*([ZTD])?\s*(\d+)\s*-\s*(\d{4})')
+_TSG_CODE_RE = re.compile(r'TSG\s*([A-Z]{1,2})?\s*(\d{1,4})\s*-\s*(\d{4})')
+# 标题中包裹编号的括号（全角/半角），如 '（TSG G7002—2015）'
+_TSG_BRACKET_RE = re.compile(r'[（(]\s*TSG\s*[A-Z]{0,2}\s*\d{1,4}\s*-\s*\d{4}\s*[）)]')
 
 
 def _parse_tsg_title(title: str) -> tuple:
@@ -151,6 +155,8 @@ def _parse_tsg_title(title: str) -> tuple:
     示例：
       '特种设备焊接操作人员考核细则（TSG Z6002—2026）'
         → ('TSG Z6002-2026', '特种设备焊接操作人员考核细则')
+      '锅炉定期检验规则（TSG G7002-2015）'
+        → ('TSG G7002-2015', '锅炉定期检验规则')
       '《起重机械安全技术规程》（TSG 51—2023）'
         → ('TSG 51-2023', '起重机械安全技术规程')
       '《特种设备检验机构核准规则》（TSG Z7001—2021）第 1 号修改单'
@@ -177,9 +183,7 @@ def _parse_tsg_title(title: str) -> tuple:
     code = normalize_code(code)
 
     # 从标题中移除 TSG 编号及其包裹的括号
-    # 匹配 （TSG...） 或 (TSG...) 形式
-    bracket_re = re.compile(r'[（(]\s*TSG\s*[ZTD]?\s*\d+\s*-\s*\d{4}\s*[）)]')
-    name = bracket_re.sub('', normalized).strip()
+    name = _TSG_BRACKET_RE.sub('', normalized).strip()
     # 剥离《》
     if name.startswith('《'):
         name = name[1:]
@@ -194,6 +198,137 @@ def _parse_status(title: str) -> str:
     if '废止' in title:
         return '废止'
     return '现行'
+
+
+# ==================== 旧版/失效识别 ====================
+# 归档栏目本身不标注废止状态，以下替代关系来自各新规程前言"整合修订"清单与总局发布公告，
+# 已核实来源（节选）：
+#   TSG 11—2020 前言：整合 G0001/G1001/ZB001/ZB002/G5001/G5002/G5003/G7001/G7002 共 9 个规范
+#   TSG 91—2021 前言：整合 G0002/G0003
+#   TSG 21—2016 前言：整合 R7001/R7004 等 7 个规范
+#   TSG 23—2021 前言：整合 R0006/R0009/RF001/R1003/R7002/R7003 等 7 个规范
+#   TSG 51—2023 前言：整合 Q0002/Q7015/Q7016 等（Q 系列型式试验细则经 Q7002—2019 一并取代）
+#   TSG T7001—2023 前言：整合 TSG T7001～T7006
+#   TSG 81—2022：N0001—2017 的修订版
+#   TSG 31—2025 公告：整合 D0001/D7005 等
+#   TSG 92—2026 公告：整合 ZF001/ZF003 等
+#   TSG Z7001—2021：整合 Z7001/Z7002/Z7003—2004；TSG Z7002—2022：整合 Z7005—2015
+#   TSG 08—2026（2026-05-01 施行，总局公告）：取代 08—2017
+_TSG_SUPERSEDED = {
+    # 锅炉（TSG 11—2020）
+    'TSG G0001-2012': 'TSG 11-2020',
+    'TSG G1001-2004': 'TSG 11-2020',
+    'TSG ZB001-2008': 'TSG 11-2020',
+    'TSG ZB002-2008': 'TSG 11-2020',
+    'TSG G5001-2010': 'TSG 11-2020',
+    'TSG G5002-2010': 'TSG 11-2020',
+    'TSG G5003-2008': 'TSG 11-2020',
+    'TSG G7001-2015': 'TSG 11-2020',
+    'TSG G7002-2015': 'TSG 11-2020',
+    # 锅炉节能（TSG 91—2021）
+    'TSG G0002-2010': 'TSG 91-2021',
+    'TSG G0003-2010': 'TSG 91-2021',
+    # 固定式压力容器（TSG 21—2016）
+    'TSG R7001-2013': 'TSG 21-2016',
+    'TSG R7004-2013': 'TSG 21-2016',
+    # 气瓶（TSG 23—2021）
+    'TSG R0006-2014': 'TSG 23-2021',
+    'TSG R0009-2009': 'TSG 23-2021',
+    'TSG R1003-2006': 'TSG 23-2021',
+    'TSG RF001-2009': 'TSG 23-2021',
+    'TSG R7002-2009': 'TSG 23-2021',
+    'TSG R7003-2011': 'TSG 23-2021',
+    # 起重机械（TSG 51—2023，含经 Q7002—2019 取代的型式试验细则系列）
+    'TSG Q0002-2008': 'TSG 51-2023',
+    'TSG Q7015-2016': 'TSG 51-2023',
+    'TSG Q7016-2016': 'TSG 51-2023',
+    'TSG Q7002-2007': 'TSG 51-2023',
+    'TSG Q7003-2007': 'TSG 51-2023',
+    'TSG Q7004-2006': 'TSG 51-2023',
+    'TSG Q7005-2008': 'TSG 51-2023',
+    'TSG Q7006-2007': 'TSG 51-2023',
+    'TSG Q7007-2007': 'TSG 51-2023',
+    'TSG Q7008-2007': 'TSG 51-2023',
+    'TSG Q7009-2007': 'TSG 51-2023',
+    'TSG Q7010-2007': 'TSG 51-2023',
+    'TSG Q7012-2008': 'TSG 51-2023',
+    'TSG Q7013-2006': 'TSG 51-2023',
+    'TSG Q7014-2008': 'TSG 51-2023',
+    # 电梯检验（TSG T7001—2023 整合 T7001～T7006）
+    'TSG T7001-2009': 'TSG T7001-2023',
+    'TSG T7002-2011': 'TSG T7001-2023',
+    'TSG T7003-2011': 'TSG T7001-2023',
+    'TSG T7004-2012': 'TSG T7001-2023',
+    'TSG T7005-2012': 'TSG T7001-2023',
+    'TSG T7006-2012': 'TSG T7001-2023',
+    # 场车（TSG 81—2022）
+    'TSG N0001-2017': 'TSG 81-2022',
+    # 工业管道（TSG 31—2025）
+    'TSG D0001-2009': 'TSG 31-2025',
+    'TSG D7005-2018': 'TSG 31-2025',
+    # 承压类安全附件（TSG 92—2026）
+    'TSG ZF001-2006': 'TSG 92-2026',
+    'TSG ZF003-2011': 'TSG 92-2026',
+    # 检验/检测机构核准（TSG Z7001—2021 / TSG Z7002—2022）
+    'TSG Z7001-2004': 'TSG Z7001-2021',
+    'TSG Z7002-2004': 'TSG Z7001-2021',
+    'TSG Z7003-2004': 'TSG Z7001-2021',
+    'TSG Z7005-2015': 'TSG Z7002-2022',
+    # 使用管理（TSG 08—2026）
+    'TSG 08-2017': 'TSG 08-2026',
+    # 同号换版（另有"同号取新"规则自动兜底，此处显式列出主要几项）
+    'TSG Z6002-2010': 'TSG Z6002-2026',
+    'TSG Z8002-2013': 'TSG Z8002-2022',
+    'TSG D7002-2006': 'TSG D7002-2023',
+    'TSG D7003-2010': 'TSG D7003-2022',
+    'TSG T7007-2016': 'TSG T7007-2022',
+}
+
+# 无编号旧文件（试行版等）→ 替代它的新版规程，按名称关键词判定
+_TSG_SUPERSEDED_NAMES = {
+    '游乐设施安全技术监察规程': 'TSG 71-2023',
+    '滑索安全技术要求': 'TSG 71-2023',
+    '机电类特种设备安装改造维修许可规则': 'TSG 07-2019',
+}
+
+
+def _split_tsg_series(code: str) -> tuple:
+    """拆分 TSG 编号的系列号与年份：'TSG Z8002-2013' → ('TSG Z8002', 2013)"""
+    m = re.match(r'TSG\s*([A-Z]{0,2}\d{1,4})-(\d{4})$', code or '')
+    if not m:
+        return '', 0
+    return f'TSG {m.group(1)}', int(m.group(2))
+
+
+def _mark_superseded_status(standards: list) -> None:
+    """就地标记已被新版规范替代的条目为"废止"（SAMR 归档栏目不提供状态）。
+
+    判定依据：
+    1. 旧编号命中已核实的替代清单 _TSG_SUPERSEDED；
+    2. 同一编号系列存在更新年份（如 TSG Z8002-2013 被 Z8002-2022 取代，自动兜底）；
+    3. 无编号旧文件命中名称关键词 _TSG_SUPERSEDED_NAMES。
+    """
+    latest_year = {}
+    for it in standards:
+        series, year = _split_tsg_series(it.get('code', ''))
+        if series and year > latest_year.get(series, 0):
+            latest_year[series] = year
+
+    for it in standards:
+        if it.get('status') == '废止':
+            continue
+        code = (it.get('code') or '').strip()
+        name = it.get('name') or ''
+        if code in _TSG_SUPERSEDED:
+            it['status'] = '废止'
+            continue
+        name_flat = name.replace(' ', '')
+        if any(kw in name_flat for kw in _TSG_SUPERSEDED_NAMES):
+            it['status'] = '废止'
+            continue
+        series, year = _split_tsg_series(code)
+        if series and latest_year.get(series, 0) > year:
+            it['status'] = '废止'
 
 
 def _parse_list_items(html: str, source: str = 'aqjsgf') -> list:
@@ -286,7 +421,8 @@ def _fetch_detail_pdf_url(detail_url: str, source: str = 'aqjsgf') -> tuple:
     m = _ATTACH_LINK_RE.search(html)
     if m:
         url = m.group(1)
-        ext = '.pdf' if url.lower().endswith('.pdf') else '.docx'
+        # 链接常带 ?fileName= 查询串，需取路径部分再判断扩展名
+        ext = '.pdf' if urllib.parse.urlsplit(url).path.lower().endswith('.pdf') else '.docx'
         return _resolve_url(url, detail_url), ext
 
     # 其次匹配规章下载区 PDF 版（flfg 常用）
@@ -400,9 +536,6 @@ async def _scan_one_source(
                 _log.info(f"[SAMR][{source}] 增量命中上次位置 article_id={last_first_id}，停止")
                 hit_last = True
                 break
-            # 状态过滤
-            if status and status != '全部' and it.get('status') != status:
-                continue
             # 关键词过滤（__all__ 模式跳过）
             if not is_all and not is_safety(it.get('name', ''), 'mem'):
                 continue
@@ -416,9 +549,10 @@ async def _scan_one_source(
         if total_scanned >= max_results:
             break
 
-        # 推送中间结果
+        # 推送中间结果（先做旧版标记，保证界面状态正确）
         if on_intermediate:
             try:
+                _mark_superseded_status(all_standards)
                 await on_intermediate(list(all_standards))
             except Exception:
                 pass
@@ -430,6 +564,12 @@ async def _scan_one_source(
         page_no += 1
         # 保护网站
         await asyncio.sleep(get_delay())
+
+    # 状态后处理：归档栏目不提供废止标记，按替代清单/同号取新标记旧版
+    _mark_superseded_status(all_standards)
+    # 状态过滤放到标记之后（"废止"只能在全量比较后确定）
+    if status and status != '全部':
+        all_standards = [it for it in all_standards if it.get('status') == status]
 
     # 更新 checkpoint
     if all_standards:
@@ -590,6 +730,14 @@ async def _download_one_standard(std: dict, existing: set) -> dict:
             std[_SAMR_DL_STATUS] = 'failed'
             std['failReason'] = reason
             return std
+        # 源站偶发：链接带查询串导致扩展名误判为 .docx，实际内容是 PDF，按魔数修正
+        if file_ext != '.pdf' and body[:5] == b'%PDF-':
+            file_ext = '.pdf'
+            std['file_ext'] = file_ext
+            filename = make_filename(code, name, suffix=file_ext)
+            if filename.lower() in existing:
+                std[_SAMR_DL_STATUS] = 'skipped_existing'
+                return std
         # 落盘
         out_dir = get_output_dir()
         filepath = out_dir / filename
