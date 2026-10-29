@@ -440,7 +440,7 @@ async def run_tt_pipeline(
 ) -> list:
     """团体标准统一管线：scan + download，全部基于 httpx，无需 Playwright。"""
     from app.scanner.change_tracker import compare_snapshot
-    from app.scanner.utils import compute_download_stats
+    from app.scanner.utils import compute_download_stats, format_download_summary
 
     max_results = config.get('max_results', 500)
     incr = config.get('incr', False)
@@ -553,10 +553,12 @@ async def run_tt_pipeline(
                                 check_pause=_check_pause)
 
     if task_manager and task_id:
+        stats = compute_download_stats(standards)
         task_manager.update(task_id,
                             progress=progress_base + progress_per_scan + progress_per_download,
-                            dl_progress=100, message=f'团体标准下载完成({len(standards)}条)',
-                            stats=compute_download_stats(standards), std_items=standards)
+                            dl_progress=100,
+                            message=format_download_summary(stats, prefix='团体标准下载'),
+                            stats=stats, std_items=standards)
 
     _log.info(f"[TT] 下载完成: {len(standards)} 条")
     return standards

@@ -734,12 +734,13 @@ async def _run_multi_sites(
 
     # 合并最终状态
     if task_manager and task_id:
-        from app.scanner.utils import compute_download_stats
+        from app.scanner.utils import compute_download_stats, format_download_summary
+        stats = compute_download_stats(all_standards)
         task_manager.update(task_id,
             progress=progress_base + progress_per_scan + progress_per_download,
             dl_progress=100,
-            message=f'政策法规下载完成({len(all_standards)}条)',
-            stats=compute_download_stats(all_standards),
+            message=format_download_summary(stats, prefix='政策法规下载'),
+            stats=stats,
             std_items=all_standards)
 
     _log.info(f"[MEM-MULTI] 多站点完成: 共 {len(all_standards)} 条")
@@ -781,7 +782,7 @@ async def run_mem_pipeline(
         )
 
     from app.scanner.change_tracker import compare_snapshot
-    from app.scanner.utils import compute_download_stats
+    from app.scanner.utils import compute_download_stats, format_download_summary
 
     max_results = config.get('max_results', 500)
     incr = config.get('incr', False)
@@ -896,10 +897,12 @@ async def run_mem_pipeline(
                                  check_pause=_check_pause)
 
     if task_manager and task_id:
+        stats = compute_download_stats(standards)
         task_manager.update(task_id,
                             progress=progress_base + progress_per_scan + progress_per_download,
-                            dl_progress=100, message=f'应急管理部{source_label}下载完成({len(standards)}条)',
-                            stats=compute_download_stats(standards), std_items=standards)
+                            dl_progress=100,
+                            message=format_download_summary(stats, prefix=f'应急管理部{source_label}下载'),
+                            stats=stats, std_items=standards)
 
     _log.info(f"[MEM][{source}] {source_label}下载完成: {len(standards)} 条")
     return standards

@@ -2,7 +2,7 @@
 
 子模块:
   preview    - launch_browser, preview_to_pdf
-  utils      - make_filename, compute_download_stats
+  utils      - make_filename, compute_download_stats, format_download_summary
   checkpoint - load_scan_checkpoint, get_incr_checkpoint, update_incr_checkpoint, reset_incr_checkpoint
   progress   - save_progress
   download   - download_with_captcha
@@ -26,6 +26,7 @@ _SUBMODULE_MAP = {
     'PLAYWRIGHT_AVAILABLE': 'app.scanner.preview',
     'make_filename': 'app.scanner.utils',
     'compute_download_stats': 'app.scanner.utils',
+    'format_download_summary': 'app.scanner.utils',
     'load_scan_checkpoint': 'app.scanner.checkpoint',
     'get_incr_checkpoint': 'app.scanner.checkpoint',
     'update_incr_checkpoint': 'app.scanner.checkpoint',

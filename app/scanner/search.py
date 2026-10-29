@@ -186,15 +186,15 @@ def get_detail_url_by_tid(tid, pid):
 
 
 def check_downloadable(tid):
-    """检查标准类型是否可下载"""
+    """检查标准类型是否支持下载（仅按类型判断，不代表该标准一定能取到全文）"""
     if tid == 'BV_GB':
-        return True, '国家标准，可下载'
+        return True, '国家标准，支持下载'
     elif tid == 'BV_HB':
-        return True, '行业标准，可下载'
+        return True, '行业标准，支持下载'
     elif tid == 'BV_DB':
-        return True, '地方标准，可下载'
+        return True, '地方标准，支持下载'
     elif tid == 'BV_TT':
-        return True, '团体标准，可下载'
+        return True, '团体标准，支持下载'
     elif tid == 'BV_GB_PLAN':
         return False, '国家标准计划，仅计划信息，无PDF'
     else:

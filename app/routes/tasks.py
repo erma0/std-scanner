@@ -365,10 +365,14 @@ async def retry_single_item(task_id: str, item_index: int):
 
 
 @router.post("/api/task/{task_id}/download-all")
-async def download_all_task_items(task_id: str):
-    """一键下载搜索结果任务中所有尚未完成的标准（不重新搜索）"""
-    from app.scanner.search_download import FINAL_STATUSES
-    from app.scanner.utils import compute_download_stats
+async def download_all_task_items(task_id: str, skip_obsolete: bool = True):
+    """一键下载搜索结果任务中所有尚未完成的标准（不重新搜索）。
+
+    skip_obsolete=True 时先把废止标准标记为 skipped_obsolete，
+    保留记录展示"为什么没下载"，也不会被计入待下载数量。
+    """
+    from app.scanner.search_download import FINAL_STATUSES, mark_obsolete_skipped
+    from app.scanner.utils import compute_download_stats, format_download_summary
 
     task = task_manager.get(task_id)
     if not task:
@@ -382,12 +386,19 @@ async def download_all_task_items(task_id: str):
     if not items:
         raise HTTPException(status_code=400, detail="任务中没有可下载的标准")
 
+    skipped_obsolete = mark_obsolete_skipped(items) if skip_obsolete else 0
     count = sum(1 for it in items if it.get('dlStatus') not in FINAL_STATUSES)
     if count == 0:
-        raise HTTPException(status_code=400, detail="所有标准均已处理，无需重复下载")
+        stats = compute_download_stats(items)
+        msg = format_download_summary(stats)
+        task_manager.update(task_id, std_items=items, stats=stats, message=msg)
+        return {"success": True, "task_id": task_id, "count": 0,
+                "skipped_obsolete": skipped_obsolete, "message": msg}
 
     task_manager.update(task_id, status='running', progress=0,
-                        message=f'开始下载 {count} 个标准',
+                        message=f'开始下载 {count} 个标准' +
+                                (f'（跳过废止 {skipped_obsolete}）' if skipped_obsolete else ''),
+                        std_items=items, stats=compute_download_stats(items),
                         end_time=None, paused_duration=0)
 
     async def download_task():
@@ -396,16 +407,18 @@ async def download_all_task_items(task_id: str):
             _log.info(f"任务 {task_id}: 一键下载 {count} 个标准")
             await _download_selected_items(task_id, items, progress_base=0)
             stats = compute_download_stats(items)
+            msg = format_download_summary(stats)
             task_manager.update(
                 task_id, progress=100, status='completed', end_time=time.time(),
-                message=f'下载完成: 成功 {stats["success"]}，失败 {stats["failed"]}，跳过 {stats["skipped"]}')
+                message=msg)
             _log.info(f"任务 {task_id}: 一键下载完成")
         except Exception as e:
             _log.error(f"任务 {task_id} 一键下载异常: {e}")
             task_manager.update(task_id, status='failed', message=str(e), end_time=time.time())
 
     _launch_task(download_task(), f"download-all-{task_id}")
-    return {"success": True, "task_id": task_id, "count": count}
+    return {"success": True, "task_id": task_id, "count": count,
+            "skipped_obsolete": skipped_obsolete}
 
 
 @router.post("/api/task/{task_id}/retry-failed")

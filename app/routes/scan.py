@@ -146,13 +146,14 @@ def _create_scan_task(scan_type, task_id_prefix, config, resume_task_id=None):
                 task_manager.save_all()
                 return
 
-            from app.scanner.utils import compute_download_stats
+            from app.scanner.utils import compute_download_stats, format_download_summary
+            stats = compute_download_stats(standards)
             task_manager.update(task_id,
-                stats=compute_download_stats(standards),
+                stats=stats,
                 std_items=standards,
                 progress=100, status="completed",
                 end_time=time.time(),
-                message=f"{type_label}下载完成({len(standards)}条)")
+                message=format_download_summary(stats, prefix=f"{type_label}下载"))
 
             task = task_manager.get(task_id)
             report = task['stats'].copy()

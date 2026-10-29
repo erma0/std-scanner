@@ -56,7 +56,7 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
     """
     from .state import task_manager
     from app.scanner_engine import run_scan_pipeline
-    from app.scanner.utils import compute_download_stats
+    from app.scanner.utils import compute_download_stats, format_download_summary
     from app.notifier import get_notification_service
     from app.helpers import format_duration
 
@@ -189,7 +189,7 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
                     stats=stats, std_items=standards,
                     progress=100, status="completed",
                     end_time=time.time(),
-                    message=f"{_label}下载完成({len(standards)}条)")
+                    message=format_download_summary(stats, prefix=f"{_label}下载"))
 
                 # 发送通知
                 task = task_manager.get(tid)

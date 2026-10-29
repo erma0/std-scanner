@@ -23,6 +23,7 @@ from app.scanner import (
     scan_db_standards, download_db_standards,
     compare_snapshot,
     compute_download_stats,
+    format_download_summary,
     run_tt_pipeline,
     run_mem_pipeline,
 )
@@ -275,11 +276,12 @@ async def run_scan_pipeline(
                                     on_item_done=_on_item_done, check_pause=_check_pause)
 
     if task_manager and task_id:
+        stats = compute_download_stats(standards)
         task_manager.update(task_id,
             progress=progress_base + progress_per_scan + progress_per_download,
             dl_progress=100,
-            message=f"{type_label}下载完成({len(standards)}条)",
-            stats=compute_download_stats(standards),
+            message=format_download_summary(stats, prefix=f"{type_label}下载"),
+            stats=stats,
             std_items=standards)
 
     _log.info(f"[ENGINE] {scan_type.upper()} 下载完成: {len(standards)} 条")

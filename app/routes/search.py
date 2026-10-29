@@ -49,7 +49,7 @@ async def search_query_api(request: Request):
             "publishDate": s.get('publishDate', ''),
             "actDate": '',
             "downloadable": not s.get('sellable', False),
-            "download_msg": '付费标准' if s.get('sellable') else '可下载',
+            "download_msg": '付费标准' if s.get('sellable') else '支持下载',
             "detailUrl": f"https://www.ttbz.org.cn/StandardManage/Detail/{s.get('detail_id', '')}/",
             "group_name": s.get('group_name', ''),
         } for s in standards]
@@ -88,10 +88,11 @@ async def search_batch_api(request: Request):
     """批量搜索下载：每行一个关键词/标准号，逐个搜索去重后自动下载。
 
     body: {
-        queries: ["关键词1", "标准号1", ...],   # 必填
+        queries: ["关键词1", "标准号1", ...],   # 必填，最多 1000 行
         std_type: "全部" | "国家标准" | ...,    # 默认 "全部"
         per_query_max: 10,                      # 关键词行最大结果数，默认 10
         exact_match: true,                      # 标准号行精确匹配（默认开启）
+        skip_obsolete: true,                    # 关键词命中的废止版本默认跳过
         auto_download: true                     # 搜索完成后自动下载，默认 true
     }
 
@@ -104,6 +105,7 @@ async def search_batch_api(request: Request):
     std_type = body.get("std_type", "全部")
     per_query_max = int(body.get("per_query_max", 10))
     exact_match = bool(body.get("exact_match", True))
+    skip_obsolete = bool(body.get("skip_obsolete", True))
     auto_download = bool(body.get("auto_download", True))
 
     # 规范化 queries：字符串可按行拆分
@@ -118,6 +120,8 @@ async def search_batch_api(request: Request):
 
     if not queries:
         raise HTTPException(status_code=400, detail="未提供搜索关键词")
+    if len(queries) > 1000:
+        raise HTTPException(status_code=400, detail=f"单次批量搜索最多 1000 个关键词（当前 {len(queries)} 个）")
     if per_query_max < 1 or per_query_max > 100:
         raise HTTPException(status_code=400, detail="per_query_max 取值范围 1-100")
 
@@ -134,10 +138,12 @@ async def search_batch_api(request: Request):
     })
 
     async def batch_task():
+        from app.scanner.utils import compute_download_stats, format_download_summary
         try:
             _log.info(f"任务 {task_id}: 批量搜索 {len(queries)} 个关键词")
-            all_items = await _batch_search_dedup(task_id, queries, std_type,
-                                                 per_query_max, exact_match)
+            all_items, obsolete_skipped = await _batch_search_dedup(
+                task_id, queries, std_type, per_query_max, exact_match, skip_obsolete)
+            obsolete_note = f"（搜索阶段跳过废止 {obsolete_skipped} 条）" if obsolete_skipped else ''
 
             # 暂停时等待用户继续，避免直接进入下载阶段或提前标记完成
             if not await _wait_if_running(task_id):
@@ -145,7 +151,7 @@ async def search_batch_api(request: Request):
 
             if not all_items:
                 update_task_status(task_id, progress=100, status="completed",
-                                 message="搜索完成，未找到可下载的标准",
+                                 message="搜索完成，未找到可下载的标准" + obsolete_note,
                                  end_time=time.time())
                 return
 
@@ -156,14 +162,15 @@ async def search_batch_api(request: Request):
                 await _download_selected_items(task_id, all_items, progress_base=50)
                 if not await _wait_if_running(task_id):
                     return
+                stats = compute_download_stats(all_items)
                 update_task_status(task_id, progress=100, status="completed",
-                                 message=f"批量任务完成（{len(all_items)} 个标准）",
+                                 message=format_download_summary(stats) + obsolete_note,
                                  end_time=time.time())
             else:
                 # 仅搜索：把结果存入 std_items 供前端查看
                 task_manager.update(task_id, std_items=all_items, progress=100,
                                   status="completed",
-                                  message=f"搜索完成，共 {len(all_items)} 个可下载标准",
+                                  message=f"搜索完成，共 {len(all_items)} 个可下载标准" + obsolete_note,
                                   end_time=time.time())
             _log.info(f"任务 {task_id}: 完成")
         except Exception as e:
@@ -200,14 +207,18 @@ async def _sleep_with_pause(task_id, seconds):
         await asyncio.sleep(min(0.2, remaining))
 
 
-async def _batch_search_dedup(task_id, queries, std_type, per_query_max, exact_match=True):
-    """批量搜索并去重，返回可下载的 items 列表。
+async def _batch_search_dedup(task_id, queries, std_type, per_query_max,
+                              exact_match=True, skip_obsolete=True):
+    """批量搜索并去重，返回 (可下载 items 列表, 搜索阶段跳过的废止条数)。
 
     每搜完一个关键词就把已匹配结果写回任务，前端可在搜索过程中/暂停时
     看到实时结果，而不是等全部完成。
 
     exact_match=True 时按查询意图过滤：标准号行只保留编号匹配的结果
     （未指定年份时自动排除废止版本），关键词行仍按 per_query_max 截断。
+
+    skip_obsolete=True 时，关键词命中的废止版本直接跳过（标准号行不受影响，
+    用户明确查询某个废止编号时仍然保留）。
 
     去重 key：GB 用 pid；HB/DB 用 code+name（pid 可能跨类型相同）；
     TT（团体标准）用 detail_id。
@@ -219,6 +230,7 @@ async def _batch_search_dedup(task_id, queries, std_type, per_query_max, exact_m
 
     seen = set()
     all_items = []
+    obsolete_skipped = 0
     total = len(queries)
     loop = asyncio.get_running_loop()
     is_tt = (std_type == '团体标准')
@@ -244,7 +256,7 @@ async def _batch_search_dedup(task_id, queries, std_type, per_query_max, exact_m
             continue
 
         if exact_match:
-            standards, is_code_query = filter_standard_results(q, standards)
+            standards, is_code_query = filter_standard_results(q, standards, per_query_max)
         else:
             is_code_query = False
             standards = standards[:per_query_max]
@@ -260,18 +272,24 @@ async def _batch_search_dedup(task_id, queries, std_type, per_query_max, exact_m
                     else:
                         retry_standards, _ = await loop.run_in_executor(
                             None, fetch_stdpage_search, retry_q, 1, std_type)
-                    standards, _ = filter_standard_results(q, retry_standards)
+                    standards, _ = filter_standard_results(q, retry_standards, per_query_max)
                 except Exception as e:
                     _log.warning(f"按编号二次搜索 '{retry_q}' 失败: {e}")
 
         if is_code_query and not standards:
             _log.info(f"  [{i+1}/{total}] '{q[:40]}' 未匹配到对应编号")
 
+        # 关键词命中的废止版本默认跳过；标准号查询保持原样（用户可能就是要旧版）
+        if skip_obsolete and not is_code_query and standards:
+            kept = [s for s in standards if '废止' not in (s.get('status') or '')]
+            obsolete_skipped += len(standards) - len(kept)
+            standards = kept
+
         added = 0
         for s in standards:
             # 暂停时立即挂起；任务删除/结束时停止批量搜索
             if not await _wait_if_running(task_id):
-                return all_items
+                return all_items, obsolete_skipped
             if is_tt:
                 # 团体标准结果格式
                 tid = 'BV_TT'
@@ -295,7 +313,7 @@ async def _batch_search_dedup(task_id, queries, std_type, per_query_max, exact_m
                     "publishDate": s.get('publishDate', ''),
                     "actDate": '',
                     "downloadable": True,
-                    "download_msg": '可下载',
+                    "download_msg": '支持下载',
                     "detailUrl": f"https://www.ttbz.org.cn/StandardManage/Detail/{detail_id}/",
                     "query": q,
                 })
@@ -340,25 +358,32 @@ async def _batch_search_dedup(task_id, queries, std_type, per_query_max, exact_m
         if not await _sleep_with_pause(task_id, get_delay()):
             break
 
-    return all_items
+    return all_items, obsolete_skipped
 
 
 @router.post("/api/search/download")
 async def search_download_selected_api(request: Request):
+    from app.scanner.search_download import FINAL_STATUSES, mark_obsolete_skipped
+    from app.scanner.utils import compute_download_stats, format_download_summary
+
     body = await request.json()
     items = body.get("items", [])
+    # 一键下载全部默认跳过废止；前端显式下载选中时传 false
+    skip_obsolete = bool(body.get("skip_obsolete", True))
 
     if not items:
         raise HTTPException(status_code=400, detail="未选择任何标准")
 
+    skipped_obsolete = mark_obsolete_skipped(items) if skip_obsolete else 0
+    pending_count = sum(1 for it in items if it.get('dlStatus') not in FINAL_STATUSES)
     task_id = f"search_{int(time.time())}"
 
     task_manager.create(task_id, {
         "task_id": task_id,
         "status": "running",
         "progress": 0,
-        "message": f"下载中 {len(items)} 个标准",
-        "stats": {"downloaded": 0, "success": 0, "failed": 0, "skipped": 0},
+        "message": f"下载中 {pending_count} 个标准" + (f"（跳过废止 {skipped_obsolete}）" if skipped_obsolete else ''),
+        "stats": compute_download_stats(items),
         "start_time": time.time(),
         "std_type": "search",
         "std_items": []
@@ -370,7 +395,7 @@ async def search_download_selected_api(request: Request):
             await _download_selected_items(task_id, items, progress_base=0)
 
             update_task_status(task_id, progress=100, status="completed",
-                             message=f"下载完成({len(items)}个标准)")
+                             message=format_download_summary(compute_download_stats(items)))
             task_manager.update(task_id, end_time=time.time())
             _log.info(f"任务 {task_id}: 完成")
         except Exception as e:
@@ -378,7 +403,7 @@ async def search_download_selected_api(request: Request):
             task_manager.update(task_id, status="failed", message=str(e), end_time=time.time())
 
     _launch_task(download_task(), f"download-{task_id}")
-    return {"success": True, "task_id": task_id}
+    return {"success": True, "task_id": task_id, "skipped_obsolete": skipped_obsolete}
 
 
 async def _download_selected_items(task_id, items, progress_base=0):

@@ -110,6 +110,7 @@ AJAX API (POST, application/x-www-form-urlencoded):
 | `downloaded` | 直接下载成功 | - |
 | `previewed` | 预览拼接下载成功 | - |
 | `skipped_existing` | 文件已存在，跳过 | - |
+| `skipped_obsolete` | 已废止，一键下载时默认跳过 | ❌（单条重试仍可下载） |
 | `failed` | 下载失败（通用） | ✅ 重试 |
 | `failed_hcno` | hcno 提取失败（详情页无 newGbInfo 跳转） | ✅ 重试会先重提取 |
 | `no_hcno` | hcno 未分配（详情页有 newGbInfo 但 hcno 为空，标准太新未发布到 openstd） | ❌ 等待网站发布 |
@@ -678,8 +679,8 @@ async def run_scan_pipeline(
 | 方法 | 路径 | 参数 |
 |------|------|------|
 | POST | `/api/search/query` | `query`, `std_type`, `max_results` |
-| POST | `/api/search/batch` | `queries[]`, `std_type`, `per_query_max`(10, 仅关键词), `exact_match`(true, 标准号精确匹配/排除废止), `auto_download`(true)；搜索中实时回写 std_items |
-| POST | `/api/search/download` | `items[]` (tid/pid/code/name) |
+| POST | `/api/search/batch` | `queries[]`（单次最多 1000 行）, `std_type`, `per_query_max`(10, 仅关键词), `exact_match`(true, 标准号精确匹配/排除废止), `skip_obsolete`(true, 关键词命中的废止版本跳过), `auto_download`(true)；搜索中实时回写 std_items |
+| POST | `/api/search/download` | `items[]` (tid/pid/code/name), `skip_obsolete`(true, 全部下载跳过废止；下载选中传 false) |
 
 ### 任务管理
 | 方法 | 路径 | 说明 |
@@ -695,7 +696,7 @@ async def run_scan_pipeline(
 | POST | `/api/task/{id}/retry` | 重试（search 任务拒绝；gb/hb/db 重建；all 拆三任务） |
 | POST | `/api/task/{id}/retry-item/{item_index}` | 单条重试（不重新扫描，仅重下该条；支持 search/search_batch） |
 | POST | `/api/task/{id}/retry-failed` | 批量重试所有失败项 |
-| POST | `/api/task/{id}/download-all` | 一键下载搜索结果任务中所有未完成项（不重新搜索） |
+| POST | `/api/task/{id}/download-all` | 一键下载搜索结果任务中所有未完成项（不重新搜索；默认把废止标记为 `skipped_obsolete`） |
 | POST | `/api/task/{id}/priority` | 调整任务优先级（body: priority 非负整数） |
 
 ### 定时调度

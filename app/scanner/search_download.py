@@ -15,9 +15,29 @@ _log = logging.getLogger('std_scraper')
 
 # 终态：这些状态不会因为重复下载而改变，一键下载时直接跳过
 FINAL_STATUSES = {
-    'downloaded', 'previewed', 'skipped_existing',
+    'downloaded', 'previewed', 'skipped_existing', 'skipped_obsolete',
     'copyright', 'preview_disabled', 'no_fulltext', 'failed_no_pk',
 }
+
+
+def is_obsolete(item):
+    """标准是否已废止（部分来源的状态名可能带额外后缀）"""
+    return '废止' in (item.get('status') or '')
+
+
+def mark_obsolete_skipped(items):
+    """把尚未处理的废止标准标记为 skipped_obsolete，返回标记数量。
+
+    一键下载/全部下载默认跳过废止版本，同时保留记录让用户看到"为什么没下载"；
+    显式单条重试不受影响。已处于终态（如下载成功）的标准不会被改写。
+    """
+    marked = 0
+    for item in items:
+        if is_obsolete(item) and item.get('dlStatus') not in FINAL_STATUSES:
+            item['dlStatus'] = 'skipped_obsolete'
+            item['failReason'] = '已废止，默认跳过'
+            marked += 1
+    return marked
 
 
 def _resolve_site_pk(code, site_type):
