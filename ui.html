@@ -4270,23 +4270,12 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             return '暂无匹配标准';
         }
 
-        // 搜索结果任务中尚未处理（无状态或失败）的标准数量；
-        // 废止标准一键下载时会自动跳过，因此不计入待下载数量
-        function _pendingDlCount(task) {
-            const FINAL = ['downloaded', 'previewed', 'skipped_existing', 'skipped_obsolete',
-                           'copyright', 'preview_disabled', 'no_fulltext', 'failed_no_pk'];
-            return (task.std_items || []).filter(s =>
-                !FINAL.includes(s.dlStatus || '') && !(s.status || '').includes('废止')).length;
-        }
-
         function renderTaskDetail(task) {
             const stats = task.stats || {};
 
             // 标准列表表格（分页）
             const items = task.std_items || [];
             const tid = task.task_id;
-            const isSearchTask = task.std_type === 'search' || task.std_type === 'search_batch';
-            const pendingDlCount = isSearchTask ? _pendingDlCount(task) : 0;
             const currentPage = detailPages[tid] || 1;
             const totalPages = Math.max(1, Math.ceil(items.length / DETAIL_PAGE_SIZE));
             const pageItems = items.slice((currentPage - 1) * DETAIL_PAGE_SIZE, currentPage * DETAIL_PAGE_SIZE);
@@ -4388,13 +4377,6 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     ${task.end_time ? `<div class="text-[11px] text-gray-400 detail-end-time">结束于 ${new Date(task.end_time * 1000).toLocaleString()}</div>` : ''}
 
                     <!-- 批量操作 -->
-                    ${isSearchTask ? `
-                    <div class="detail-download-all-wrap flex items-center gap-2" style="${task.status !== 'running' && pendingDlCount > 0 ? '' : 'display:none'}">
-                        <button class="detail-download-all-btn text-[11px] text-emerald-600 hover:text-emerald-800 px-2 py-1 rounded border border-emerald-200 hover:border-emerald-400 transition-colors" onclick="event.stopPropagation();downloadAllTaskItems('${task.task_id}')">
-                            <i class="fa fa-cloud-download mr-1"></i>一键下载全部 (<span class="detail-download-all-count">${pendingDlCount}</span>条)
-                        </button>
-                    </div>
-                    ` : ''}
                     <div class="flex items-center gap-2" style="${stats.failed > 0 && task.status !== 'running' ? '' : 'display:none'}">
                         <button class="detail-retry-failed-btn text-[11px] text-cyan-500 hover:text-cyan-700 px-2 py-1 rounded border border-cyan-200 hover:border-cyan-400 transition-colors" onclick="event.stopPropagation();retryAllFailed('${task.task_id}')">
                             <i class="fa fa-refresh mr-1"></i>重试全部失败 (${stats.failed || 0}条)
@@ -4554,17 +4536,6 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 const shouldShow = failedCount > 0 && task.status !== 'running';
                 if (retryBtn.parentElement) retryBtn.parentElement.style.display = shouldShow ? '' : 'none';
                 if (shouldShow) retryBtn.innerHTML = '<i class="fa fa-refresh mr-1"></i>重试全部失败 (' + failedCount + '条)';
-            }
-
-            // 更新「一键下载全部」按钮的可见性与剩余数量
-            const dlAllWrap = detailEl.querySelector('.detail-download-all-wrap');
-            if (dlAllWrap) {
-                const pendingCount = _pendingDlCount(task);
-                dlAllWrap.style.display = (task.status !== 'running' && pendingCount > 0) ? '' : 'none';
-                const countEl = dlAllWrap.querySelector('.detail-download-all-count');
-                if (countEl && countEl.textContent !== String(pendingCount)) {
-                    countEl.textContent = pendingCount;
-                }
             }
 
             // 更新标准列表标题计数
