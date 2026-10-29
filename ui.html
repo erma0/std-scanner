@@ -3434,7 +3434,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
         }
 
         function getTaskTitle(task) {
-            const typeNames = { 'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准', 'mem': '政策法规', 'search': '搜索下载' };
+            const typeNames = { 'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准', 'mem': '政策法规', 'search': '搜索下载', 'search_batch': '批量搜索下载' };
             let base = typeNames[task.std_type] || '标准';
             // mem 类型按 site 区分（多站点用 + 合并显示）
             if (task.std_type === 'mem') {
@@ -3513,12 +3513,15 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 ? (duration < 60 ? Math.round(duration) + '秒' : Math.round(duration / 60) + '分' + Math.round(duration % 60) + '秒')
                 : '';
 
-            const typeIcons = { 'gb': 'fa-book', 'hb': 'fa-industry', 'db': 'fa-map-marker', 'search': 'fa-search' };
-            const typeColors = { 'gb': 'text-blue-500', 'hb': 'text-indigo-500', 'db': 'text-green-500', 'search': 'text-cyan-500' };
+            const typeIcons = { 'gb': 'fa-book', 'hb': 'fa-industry', 'db': 'fa-map-marker', 'search': 'fa-search', 'search_batch': 'fa-list' };
+            const typeColors = { 'gb': 'text-blue-500', 'hb': 'text-indigo-500', 'db': 'text-green-500', 'search': 'text-cyan-500', 'search_batch': 'text-cyan-500' };
             const typeName = getTaskTitle(task);
             const typeIcon = typeIcons[task.std_type] || 'fa-file-text-o';
             const statusLabels = { 'running': '运行中', 'completed': '已完成', 'failed': '失败', 'pending': '等待中', 'paused': '已暂停', 'interrupted': '已中断' };
             const esc = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+            // 搜索结果任务：用「下载全部」替代「重试」（重试会重新搜索，语义不符）
+            const isSearchTask = task.std_type === 'search' || task.std_type === 'search_batch';
+            const canDownloadAll = isSearchTask && ['completed', 'failed', 'interrupted'].includes(task.status);
 
             const statusClass = task.status === 'running' ? 'bg-yellow-500 text-white'
                 : task.status === 'completed' ? 'bg-green-500 text-white'
@@ -3598,7 +3601,8 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             <div class="task-actions flex items-center space-x-3" data-status="${task.status}" onclick="event.stopPropagation()">
                                 <button class="task-btn-pause text-yellow-500 hover:text-yellow-700 transition-colors" style="${task.status === 'running' ? '' : 'display:none'}" onclick="pauseTask('${task.task_id}')" title="暂停任务"><i class="fa fa-pause mr-1"></i>暂停</button>
                                 <button class="task-btn-resume text-green-500 hover:text-green-700 transition-colors" style="${task.status === 'paused' ? '' : 'display:none'}" onclick="resumeTask('${task.task_id}')" title="继续任务"><i class="fa fa-play mr-1"></i>继续</button>
-                                <button class="task-btn-retry text-cyan-500 hover:text-cyan-700 transition-colors" style="${(task.status === 'failed' || task.status === 'completed' || task.status === 'interrupted') ? '' : 'display:none'}" onclick="retryTask('${task.task_id}')" title="重试任务"><i class="fa fa-refresh mr-1"></i>重试</button>
+                                <button class="task-btn-download-all text-emerald-600 hover:text-emerald-800 transition-colors" style="${canDownloadAll ? '' : 'display:none'}" onclick="downloadAllTaskItems('${task.task_id}')" title="一键下载全部搜索结果"><i class="fa fa-cloud-download mr-1"></i>下载全部</button>
+                                <button class="task-btn-retry text-cyan-500 hover:text-cyan-700 transition-colors" style="${(task.status === 'failed' || task.status === 'completed' || task.status === 'interrupted') && !isSearchTask ? '' : 'display:none'}" onclick="retryTask('${task.task_id}')" title="重试任务"><i class="fa fa-refresh mr-1"></i>重试</button>
                                 <button class="task-btn-priority text-amber-500 hover:text-amber-700 transition-colors" style="${task.status === 'pending' ? '' : 'display:none'}" onclick="bumpTaskPriority('${task.task_id}')" title="置顶任务"><i class="fa fa-arrow-up mr-1"></i>置顶</button>
                                 <button class="task-btn-folder text-blue-400 hover:text-blue-600 transition-colors" style="${task.status === 'completed' ? '' : 'display:none'}" onclick="openOutputDir()"><i class="fa fa-folder-open mr-1"></i>文件夹</button>
                                 <button class="task-btn-delete text-red-400 hover:text-red-600 transition-colors" onclick="deleteTask('${task.task_id}')" title="删除任务"><i class="fa fa-trash mr-1"></i></button>
@@ -3756,9 +3760,12 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 const el = actions.querySelector('.' + cls);
                 if (el) el.style.display = show ? '' : 'none';
             };
+            const isSearchTask = task.std_type === 'search' || task.std_type === 'search_batch';
+            const ended = task.status === 'failed' || task.status === 'completed' || task.status === 'interrupted';
             toggle('task-btn-pause', task.status === 'running');
             toggle('task-btn-resume', task.status === 'paused');
-            toggle('task-btn-retry', task.status === 'failed' || task.status === 'completed' || task.status === 'interrupted');
+            toggle('task-btn-download-all', isSearchTask && ended);
+            toggle('task-btn-retry', ended && !isSearchTask);
             toggle('task-btn-priority', task.status === 'pending');
             toggle('task-btn-folder', task.status === 'completed');
         }
@@ -4112,6 +4119,21 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             }
         }
 
+        async function downloadAllTaskItems(taskId) {
+            try {
+                const resp = await fetch(`${API_BASE}/task/${taskId}/download-all`, { method: 'POST' });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast(`已开始下载 ${data.count} 个标准`, 'success');
+                    // SSE 会推送任务状态，展开的详情会自动刷新
+                } else {
+                    showToast(data.detail || '下载失败', 'error');
+                }
+            } catch (e) {
+                showToast('下载失败: ' + (e.message || String(e)), 'error');
+            }
+        }
+
         async function retryAllFailed(taskId) {
             try {
                 showToast('正在批量重试，请稍候...', 'info');
@@ -4190,6 +4212,8 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
         function getStdUrl(s, task) {
             const t = task && task.std_type;
+            // 搜索结果自带详情页链接，直接使用
+            if (s.detailUrl) return s.detailUrl;
             if (t === 'gb' && s.id) {
                 return 'https://std.samr.gov.cn/gb/search/gbDetailed?id=' + s.id;
             } else if ((t === 'hb' || t === 'db') && s.pk) {
@@ -4201,12 +4225,35 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
         const DETAIL_PAGE_SIZE = 20;
 
+        // 详情面板空状态提示：区分搜索/扫描、运行中/暂停
+        function _taskEmptyHint(task) {
+            const stats = task.stats || {};
+            const isSearch = task.std_type === 'search' || task.std_type === 'search_batch';
+            const verb = isSearch ? '搜索中' : '扫描中';
+            if (task.status === 'running') {
+                return stats.scanned > 0 ? `${verb}，已匹配 ${stats.scanned} 条...` : `${verb}，暂无数据...`;
+            }
+            if (task.status === 'paused') {
+                return stats.scanned > 0 ? `已暂停，已匹配 ${stats.scanned} 条...` : '已暂停，暂无匹配结果';
+            }
+            return '暂无匹配标准';
+        }
+
+        // 搜索结果任务中尚未处理（无状态或失败）的标准数量
+        function _pendingDlCount(task) {
+            const FINAL = ['downloaded', 'previewed', 'skipped_existing',
+                           'copyright', 'preview_disabled', 'no_fulltext', 'failed_no_pk'];
+            return (task.std_items || []).filter(s => !FINAL.includes(s.dlStatus || '')).length;
+        }
+
         function renderTaskDetail(task) {
             const stats = task.stats || {};
 
             // 标准列表表格（分页）
             const items = task.std_items || [];
             const tid = task.task_id;
+            const isSearchTask = task.std_type === 'search' || task.std_type === 'search_batch';
+            const pendingDlCount = isSearchTask ? _pendingDlCount(task) : 0;
             const currentPage = detailPages[tid] || 1;
             const totalPages = Math.max(1, Math.ceil(items.length / DETAIL_PAGE_SIZE));
             const pageItems = items.slice((currentPage - 1) * DETAIL_PAGE_SIZE, currentPage * DETAIL_PAGE_SIZE);
@@ -4307,6 +4354,13 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     ${task.end_time ? `<div class="text-[11px] text-gray-400 detail-end-time">结束于 ${new Date(task.end_time * 1000).toLocaleString()}</div>` : ''}
 
                     <!-- 批量操作 -->
+                    ${isSearchTask ? `
+                    <div class="detail-download-all-wrap flex items-center gap-2" style="${task.status !== 'running' && pendingDlCount > 0 ? '' : 'display:none'}">
+                        <button class="detail-download-all-btn text-[11px] text-emerald-600 hover:text-emerald-800 px-2 py-1 rounded border border-emerald-200 hover:border-emerald-400 transition-colors" onclick="event.stopPropagation();downloadAllTaskItems('${task.task_id}')">
+                            <i class="fa fa-cloud-download mr-1"></i>一键下载全部 (<span class="detail-download-all-count">${pendingDlCount}</span>条)
+                        </button>
+                    </div>
+                    ` : ''}
                     <div class="flex items-center gap-2" style="${stats.failed > 0 && task.status !== 'running' ? '' : 'display:none'}">
                         <button class="detail-retry-failed-btn text-[11px] text-cyan-500 hover:text-cyan-700 px-2 py-1 rounded border border-cyan-200 hover:border-cyan-400 transition-colors" onclick="event.stopPropagation();retryAllFailed('${task.task_id}')">
                             <i class="fa fa-refresh mr-1"></i>重试全部失败 (${stats.failed || 0}条)
@@ -4324,7 +4378,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     </div>
                     ` : `
                     <div class="detail-empty-hint text-center text-gray-400 text-sm py-2">
-                        ${task.status === 'running' ? (stats.scanned > 0 ? `扫描中，已匹配 ${stats.scanned} 条...` : '扫描中，暂无数据...') : '暂无匹配标准'}
+                        ${_taskEmptyHint(task)}
                     </div>
                     `}
                 </div>
@@ -4459,13 +4513,24 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 if (endTimeEl.textContent !== newTime) endTimeEl.textContent = newTime;
             }
 
-            // 更新重试按钮
+            // 更新重试按钮（外层 div 带 display:none，需一并切换）
             const retryBtn = detailEl.querySelector('.detail-retry-failed-btn');
             if (retryBtn) {
                 const failedCount = stats.failed || 0;
                 const shouldShow = failedCount > 0 && task.status !== 'running';
-                retryBtn.style.display = shouldShow ? '' : 'none';
+                if (retryBtn.parentElement) retryBtn.parentElement.style.display = shouldShow ? '' : 'none';
                 if (shouldShow) retryBtn.innerHTML = '<i class="fa fa-refresh mr-1"></i>重试全部失败 (' + failedCount + '条)';
+            }
+
+            // 更新「一键下载全部」按钮的可见性与剩余数量
+            const dlAllWrap = detailEl.querySelector('.detail-download-all-wrap');
+            if (dlAllWrap) {
+                const pendingCount = _pendingDlCount(task);
+                dlAllWrap.style.display = (task.status !== 'running' && pendingCount > 0) ? '' : 'none';
+                const countEl = dlAllWrap.querySelector('.detail-download-all-count');
+                if (countEl && countEl.textContent !== String(pendingCount)) {
+                    countEl.textContent = pendingCount;
+                }
             }
 
             // 更新标准列表标题计数
@@ -4478,7 +4543,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             // 更新空状态提示
             const emptyHint = detailEl.querySelector('.detail-empty-hint');
             if (emptyHint && items.length === 0) {
-                const hint = task.status === 'running' ? (stats.scanned > 0 ? '扫描中，已匹配 ' + stats.scanned + ' 条...' : '扫描中，暂无数据...') : '暂无匹配标准';
+                const hint = _taskEmptyHint(task);
                 if (emptyHint.textContent !== hint) emptyHint.textContent = hint;
             }
 

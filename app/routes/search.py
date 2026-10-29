@@ -165,13 +165,31 @@ async def search_batch_api(request: Request):
     return {"success": True, "task_id": task_id, "queries_count": len(queries)}
 
 
+async def _wait_if_running(task_id):
+    """暂停时阻塞等待，返回 False 表示任务已结束/删除，应停止执行。"""
+    while True:
+        task = task_manager.get(task_id)
+        if not task:
+            return False
+        status = task.get('status')
+        if status == 'running':
+            return True
+        if status != 'paused':
+            return False
+        await asyncio.sleep(1)
+
+
 async def _batch_search_dedup(task_id, queries, std_type, per_query_max):
     """批量搜索并去重，返回可下载的 items 列表。
+
+    每搜完一个关键词就把已匹配结果写回任务，前端可在搜索过程中/暂停时
+    看到实时结果，而不是等全部完成。
 
     去重 key：GB 用 pid；HB/DB 用 code+name（pid 可能跨类型相同）；
     TT（团体标准）用 detail_id。
     """
     from app.scanner import fetch_stdpage_search, check_downloadable, search_tt_standards
+    from app.scanner.utils import compute_download_stats
     from config.settings import DETAIL_URL, get_delay
 
     seen = set()
@@ -181,9 +199,13 @@ async def _batch_search_dedup(task_id, queries, std_type, per_query_max):
     is_tt = (std_type == '团体标准')
 
     for i, q in enumerate(queries):
+        # 暂停时挂起；任务被删除/结束时中止搜索
+        if not await _wait_if_running(task_id):
+            _log.info(f"任务 {task_id}: 搜索被中止")
+            break
         update_task_status(task_id,
                         progress=int(50 * i / total) if total else 50,
-                        message=f"搜索中 {i+1}/{total}: {q[:30]}")
+                        message=f"搜索中 {i+1}/{total}: {q[:30]}（已匹配 {len(all_items)} 条）")
         try:
             if is_tt:
                 # 团体标准走 httpx 直连 API 搜索
@@ -257,7 +279,11 @@ async def _batch_search_dedup(task_id, queries, std_type, per_query_max):
             added += 1
 
         _log.info(f"  [{i+1}/{total}] '{q[:30]}' +{added} (累计 {len(all_items)})")
-        task_manager.increment_stats(task_id, searched=1)
+        # 实时回写已匹配结果：前端展开详情即可看到（下载阶段会再次全量持久化）
+        update_task_status(task_id,
+                        std_items=all_items,
+                        stats={**compute_download_stats(all_items), 'searched': i + 1},
+                        persist_std_items=False)
         # 保护搜索站点
         await asyncio.sleep(get_delay())
 
@@ -303,184 +329,68 @@ async def search_download_selected_api(request: Request):
 
 
 async def _download_selected_items(task_id, items, progress_base=0):
-    """下载搜索结果。progress_base 控制进度条起始百分比：
-    - 0  用于普通 /api/search/download（0-99%）
+    """下载搜索结果并回写每条标准的下载状态。
+
+    progress_base 控制进度条起始百分比：
+    - 0  用于 /api/search/download 与任务一键下载（0-99%）
     - 50 用于 /api/search/batch（50-99%，前半段是搜索）
+
+    已处于终态的标准（已下载/已存在/版权限制等）会直接跳过，
+    因此同一批结果可以安全地重复触发下载。
     """
-    from app.scanner import (
-        download_with_captcha, download_hb_with_captcha, CopyrightError,
-        check_downloadable, check_hb_downloadable, get_detail_url_by_tid,
-        preview_to_pdf, launch_browser, make_filename,
-    )
-    from app.scanner.download_helpers import (
-        detect_download_buttons, extract_hcno_from_html, fetch_and_save_pdf,
-    )
-    from app.dedup import get_existing_files, add_to_existing_files_cache
-    from config.settings import OPENSTD, get_output_dir, get_delay, http_client
+    from app.scanner.search_download import SearchDownloadSession, FINAL_STATUSES
+    from app.scanner.utils import compute_download_stats
+    from config.settings import get_output_dir, get_delay
 
-    existing = get_existing_files()
     total = len(items)
+    span = 99 - progress_base
+    session = SearchDownloadSession(get_output_dir())
 
-    # 浏览器仅预览时按需启动，多个预览项复用同一个浏览器
-    browser_ctx = None
-    playwright_mgr = None
-
+    # 先把待下载列表挂到任务上，前端展开详情即可看到完整列表
+    update_task_status(task_id, std_items=items,
+                       stats=compute_download_stats(items),
+                       persist_std_items=False)
     try:
         for i, item in enumerate(items):
+            if not await _wait_if_running(task_id):
+                _log.info(f"任务 {task_id}: 下载被中止")
+                return
+
             code = item.get('code', '')
             name = item.get('name', '')
-            pid = item.get('pid', '')
-            tid = item.get('tid', '')
+            dl_pct = progress_base + int(span * i / total) if total else 99
+            update_task_status(task_id, progress=dl_pct,
+                               message=f"[{i+1}/{total}] 处理: {code} {name}")
+
+            if item.get('dlStatus') in FINAL_STATUSES:
+                continue
 
             _log.info(f"[{i+1}/{total}] 处理: {code} {name}")
-            # 下载阶段映射到 progress_base - 99% 区间
-            span = 99 - progress_base
-            dl_pct = progress_base + int(span * i / total) if total else 99
-            update_task_status(task_id,
-                            progress=dl_pct,
-                            message=f"[{i+1}/{total}] 处理: {code} {name}")
+            ok, status, reason = await session.download_one(item)
+            if not ok:
+                _log.info(f"  [FAIL] {status}" + (f": {reason}" if reason else ""))
+                await asyncio.sleep(get_delay())
 
-            filename = make_filename(code, name)
-            if filename.lower() in existing:
-                _log.info(f"  [SKIP] 已存在: {filename}")
-                task_manager.increment_stats(task_id, skipped=1)
-                continue
-
-            can_dl, dl_msg = await asyncio.get_running_loop().run_in_executor(
-                None, check_downloadable, tid)
-            if not can_dl:
-                _log.info(f"  [INFO] {dl_msg}")
-                task_manager.increment_stats(task_id, skipped=1)
-                continue
-
-            detail_url, _ = await asyncio.get_running_loop().run_in_executor(
-                None, get_detail_url_by_tid, tid, pid)
-
-            if tid == 'BV_TT':
-                # 团体标准下载（httpx 直接调用 API，无 WAF）
-                try:
-                    from app.scanner.tt_scan import _download_one_standard
-                    # 构造 std dict 供 _download_one_standard 使用
-                    std_dict = {'detail_id': pid, 'pid': pid, 'code': code, 'name': name, 'sellable': False}
-                    await _download_one_standard(std_dict, get_existing_files())
-                    if std_dict.get('dlStatus') == 'downloaded':
-                        task_manager.increment_stats(task_id, success=1, downloaded=1)
-                    elif std_dict.get('dlStatus') == 'skipped_existing':
-                        task_manager.increment_stats(task_id, skipped=1)
-                    else:
-                        task_manager.increment_stats(task_id, failed=1)
-                        await asyncio.sleep(get_delay())
-                except Exception as e:
-                    _log.error(f"  [TT ERROR] {e}")
-                    task_manager.increment_stats(task_id, failed=1)
-                    await asyncio.sleep(get_delay())
-            elif tid in ('BV_HB', 'BV_DB'):
-                try:
-                    can_download, hb_hash, pattern = await asyncio.get_running_loop().run_in_executor(
-                        None, check_hb_downloadable, detail_url)
-                    if not can_download or not hb_hash:
-                        _log.info("  [INFO] 无PDF附件")
-                        task_manager.increment_stats(task_id, skipped=1)
-                        continue
-
-                    site_type = 'hb' if 'hbba' in pattern else 'db'
-                    _log.info(f"  [DOWN] 下载中（{'行业' if site_type == 'hb' else '地方'}标准）...")
-                    out_dir = get_output_dir()
-                    filepath = out_dir / filename
-                    try:
-                        pdf_data = await asyncio.get_running_loop().run_in_executor(
-                            None, fetch_and_save_pdf,
-                            lambda: download_hb_with_captcha(hb_hash, site_type),
-                            filepath, filename, out_dir,
-                        )
-                    except CopyrightError as ce:
-                        _log.info(f"  [COPY] 版权限制: {ce}")
-                        task_manager.increment_stats(task_id, skipped=1)
-                        continue
-                    if pdf_data:
-                        _log.info(f"  [OK] {filepath} ({len(pdf_data)/1024:.0f}KB)")
-                        task_manager.increment_stats(task_id, success=1, downloaded=1)
-                    else:
-                        _log.info("  [FAIL] 下载失败")
-                        task_manager.increment_stats(task_id, failed=1)
-                        await asyncio.sleep(get_delay())
-                except Exception as e:
-                    _log.error(f"  [ERROR] {e}")
-                    task_manager.increment_stats(task_id, failed=1)
-                    await asyncio.sleep(get_delay())
-            else:
-                try:
-                    loop = asyncio.get_running_loop()
-                    resp = await loop.run_in_executor(None, http_client.get, detail_url)
-                    resp.raise_for_status()
-                    hcno = extract_hcno_from_html(resp.text)
-                    if not hcno:
-                        _log.info("  [WARN] 未找到 hcno，跳过")
-                        task_manager.increment_stats(task_id, skipped=1)
-                        continue
-                except Exception as e:
-                    _log.error(f"  [ERROR] 获取详情页失败: {e}")
-                    task_manager.increment_stats(task_id, failed=1)
-                    continue
-
-                out_dir = get_output_dir()
-                filepath = out_dir / filename
-
-                try:
-                    detail_url2 = f"{OPENSTD}/gb/newGbInfo?hcno={hcno}"
-                    resp2 = await asyncio.get_running_loop().run_in_executor(
-                        None, lambda: http_client.get(detail_url2))
-                    resp2.raise_for_status()
-                    btns = detect_download_buttons(resp2.text)
-
-                    if btns.can_download:
-                        _log.info("  [DOWN] 下载中...")
-                        pdf_data = await asyncio.get_running_loop().run_in_executor(
-                            None, fetch_and_save_pdf,
-                            lambda: download_with_captcha(hcno),
-                            filepath, filename, out_dir,
-                        )
-                        if pdf_data:
-                            _log.info(f"  [OK] {filepath} ({len(pdf_data)/1024:.0f}KB)")
-                            task_manager.increment_stats(task_id, success=1, downloaded=1)
-                        else:
-                            _log.info("  [FAIL] 下载失败")
-                            task_manager.increment_stats(task_id, failed=1)
-                            await asyncio.sleep(get_delay())
-
-                    elif btns.can_preview:
-                        from app.scanner.preview import PLAYWRIGHT_AVAILABLE
-                        from config.manager import load_config
-                        if not (load_config().get('download', {}).get('allow_preview', True) and PLAYWRIGHT_AVAILABLE):
-                            _log.info("  [SKIP] 预览拼接已禁用")
-                            task_manager.increment_stats(task_id, skipped=1)
-                        else:
-                            _log.info("  [PREV] 预览中...")
-                            if not browser_ctx:
-                                playwright_mgr, browser_ctx = await launch_browser()
-                            success = await preview_to_pdf(hcno, str(filepath), browser_ctx)
-                            if success and filepath.stat().st_size > 1000:
-                                _log.info(f"  [OK] {filepath} ({filepath.stat().st_size/1024:.0f}KB)")
-                                task_manager.increment_stats(task_id, success=1, downloaded=1)
-                                add_to_existing_files_cache(filename)
-                            else:
-                                _log.info("  [FAIL] 预览失败")
-                                task_manager.increment_stats(task_id, failed=1)
-                                await asyncio.sleep(get_delay())
-                    else:
-                        _log.info("  [NOBTN] 无下载/预览按钮" + ("(版权受限)" if btns.copyright else ""))
-                        task_manager.increment_stats(task_id, skipped=1)
-
-                except Exception as e:
-                    _log.error(f"  [ERROR] {e}")
-                    task_manager.increment_stats(task_id, failed=1)
-                    await asyncio.sleep(get_delay())
+            # 每处理一条立即回写，列表中的下载状态实时刷新
+            task_manager.update(task_id, std_items=items,
+                                stats=compute_download_stats(items),
+                                persist_std_items=False)
     finally:
-        if playwright_mgr:
-            try:
-                await playwright_mgr.__aexit__(None, None, None)
-            except Exception as e:
-                _log.debug(f"Playwright 关闭异常: {e}")
+        await session.close()
+        task_manager.update(task_id, std_items=items,
+                            stats=compute_download_stats(items))
+        # 下载完成后回写统计（供卡片与通知使用）
+        _log.info(f"任务 {task_id}: 下载阶段结束 {compute_download_stats(items)}")
+
+
+async def download_one_search_item(item, output_dir, existing):
+    """供任务单条下载/重试复用：下载一条搜索结果并回写 dlStatus。"""
+    from app.scanner.search_download import SearchDownloadSession
+    session = SearchDownloadSession(output_dir, existing=existing)
+    try:
+        return await session.download_one(item, output_dir)
+    finally:
+        await session.close()
 
 
 # 定时任务管理 API

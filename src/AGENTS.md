@@ -169,6 +169,7 @@ AJAX API (POST, application/x-www-form-urlencoded):
     │   ├── download_helpers.py # 共享：按钮检测 + hcno提取 + PDF落盘（跨 gb/hb/db/search/quick 复用）
     │   ├── preview.py         # 浏览器启动 + 预览转PDF（拼图块合成）
     │   ├── search.py          # 标准检索网站搜索（parsel 解析）
+    │   ├── search_download.py # 搜索结果单条下载（按 tid 分发 GB/HB/DB/TT，回写 dlStatus）
     │   ├── checkpoint.py      # 统一增量 checkpoint（gb/hb/db，含 reset）
     │   ├── progress.py        # 进度保存（线程安全，时间间隔控制）
     │   ├── utils.py           # make_filename（文件名生成+安全清理）
@@ -669,6 +670,7 @@ async def run_scan_pipeline(
 | 方法 | 路径 | 参数 |
 |------|------|------|
 | POST | `/api/search/query` | `query`, `std_type`, `max_results` |
+| POST | `/api/search/batch` | `queries[]`, `std_type`, `per_query_max`(20), `auto_download`(true)；搜索中实时回写 std_items |
 | POST | `/api/search/download` | `items[]` (tid/pid/code/name) |
 
 ### 任务管理
@@ -683,8 +685,9 @@ async def run_scan_pipeline(
 | POST | `/api/task/{id}/pause` | 暂停 |
 | POST | `/api/task/{id}/resume` | 继续 |
 | POST | `/api/task/{id}/retry` | 重试（search 任务拒绝；gb/hb/db 重建；all 拆三任务） |
-| POST | `/api/task/{id}/retry-item/{item_index}` | 单条重试（不重新扫描，仅重下该条） |
+| POST | `/api/task/{id}/retry-item/{item_index}` | 单条重试（不重新扫描，仅重下该条；支持 search/search_batch） |
 | POST | `/api/task/{id}/retry-failed` | 批量重试所有失败项 |
+| POST | `/api/task/{id}/download-all` | 一键下载搜索结果任务中所有未完成项（不重新搜索） |
 | POST | `/api/task/{id}/priority` | 调整任务优先级（body: priority 非负整数） |
 
 ### 定时调度

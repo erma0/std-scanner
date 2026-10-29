@@ -24,10 +24,15 @@ async def _do_retry_one(item, std_type, output_dir, existing):
     """重试下载单条标准，返回 (ok, status, reason)
 
     reason 为简短中文失败原因，调用方可用于 UI 展示
-    支持 GB/HB/DB/TT/MEM 五种类型
+    支持 GB/HB/DB/TT/MEM 及搜索结果任务（search/search_batch）
     """
     from app.scanner.utils import make_filename
     from app.scanner.download_helpers import fetch_and_save_pdf
+
+    # 搜索结果任务（search / search_batch）按 item.tid 分发到 GB/HB/DB/TT 下载
+    if std_type in ('search', 'search_batch'):
+        from app.routes.search import download_one_search_item
+        return await download_one_search_item(item, output_dir, existing)
 
     # TT/MEM 使用 code/name 字段，GB/HB/DB 使用 stdCode/stdName
     code = item.get('stdCode') or item.get('code', '')
@@ -332,9 +337,6 @@ async def retry_single_item(task_id: str, item_index: int):
     if task.get('status') == 'running':
         raise HTTPException(status_code=400, detail="任务正在运行，请等待完成后再重试单条")
 
-    if task.get('std_type') == 'search':
-        raise HTTPException(status_code=400, detail="搜索下载任务不支持单条重试")
-
     items = task.get('std_items', [])
     if item_index < 0 or item_index >= len(items):
         raise HTTPException(status_code=400, detail=f"索引 {item_index} 超出范围 (0-{len(items)-1})")
@@ -362,6 +364,50 @@ async def retry_single_item(task_id: str, item_index: int):
             "message": msg, "ok": ok, "reason": reason}
 
 
+@router.post("/api/task/{task_id}/download-all")
+async def download_all_task_items(task_id: str):
+    """一键下载搜索结果任务中所有尚未完成的标准（不重新搜索）"""
+    from app.scanner.search_download import FINAL_STATUSES
+    from app.scanner.utils import compute_download_stats
+
+    task = task_manager.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if task.get('status') in ('running', 'pending'):
+        raise HTTPException(status_code=400, detail="任务正在运行，请等待完成后再下载")
+    if task.get('std_type') not in ('search', 'search_batch'):
+        raise HTTPException(status_code=400, detail="仅搜索结果任务支持一键下载")
+
+    items = task.get('std_items') or []
+    if not items:
+        raise HTTPException(status_code=400, detail="任务中没有可下载的标准")
+
+    count = sum(1 for it in items if it.get('dlStatus') not in FINAL_STATUSES)
+    if count == 0:
+        raise HTTPException(status_code=400, detail="所有标准均已处理，无需重复下载")
+
+    task_manager.update(task_id, status='running', progress=0,
+                        message=f'开始下载 {count} 个标准',
+                        end_time=None, paused_duration=0)
+
+    async def download_task():
+        try:
+            from app.routes.search import _download_selected_items
+            _log.info(f"任务 {task_id}: 一键下载 {count} 个标准")
+            await _download_selected_items(task_id, items, progress_base=0)
+            stats = compute_download_stats(items)
+            task_manager.update(
+                task_id, progress=100, status='completed', end_time=time.time(),
+                message=f'下载完成: 成功 {stats["success"]}，失败 {stats["failed"]}，跳过 {stats["skipped"]}')
+            _log.info(f"任务 {task_id}: 一键下载完成")
+        except Exception as e:
+            _log.error(f"任务 {task_id} 一键下载异常: {e}")
+            task_manager.update(task_id, status='failed', message=str(e), end_time=time.time())
+
+    _launch_task(download_task(), f"download-all-{task_id}")
+    return {"success": True, "task_id": task_id, "count": count}
+
+
 @router.post("/api/task/{task_id}/retry-failed")
 async def retry_all_failed(task_id: str):
     """批量重试所有下载失败的标准"""
@@ -376,9 +422,6 @@ async def retry_all_failed(task_id: str):
 
     if task.get('status') == 'running':
         raise HTTPException(status_code=400, detail="任务正在运行，请等待完成后再重试")
-
-    if task.get('std_type') == 'search':
-        raise HTTPException(status_code=400, detail="搜索下载任务不支持批量重试")
 
     items = task.get('std_items', [])
     failed_indices = []
