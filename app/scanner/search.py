@@ -13,6 +13,17 @@ except ImportError:
 
 _log = logging.getLogger('std_scraper')
 
+# 标准编号前缀（含 DB11/T 这类带数字的分部分前缀），用于在缺少 en-code 标签
+# 或名称误带编号时定位名称的起点
+_CODE_PREFIX_RE = re.compile(
+    r'^\s*([A-Z]{1,6}\d*\s*(?:/\s*[A-Z]{1,4})?\s*\d+(?:\.\d+)?\s*[-—–]\s*\d{2,4})'
+)
+
+
+def _collapse_text(text):
+    """压缩连续空白为单个空格并去除首尾空白"""
+    return re.sub(r'\s+', ' ', text or '').strip()
+
 
 def fetch_stdpage_search(query, page=1, std_type='国家标准'):
     """使用标准检索网站搜索标准（HTML 页面）"""
@@ -52,26 +63,30 @@ def fetch_stdpage_search(query, page=1, std_type='国家标准'):
         tid = link.attrib.get('tid', '')
         pid = link.attrib.get('pid', '')
 
-        all_text_parts = link.css('::text').getall()
-        # 保留文本节点之间的空格：标准名称中间可能含空格，被多个文本节点
-        # （如含 <sacinfo> 标签）拆分时不能丢失
-        full_text = ' '.join(t.strip() for t in all_text_parts if t.strip())
-        full_text = re.sub(r'\s+', ' ', full_text).strip()
+        # 搜索结果会把命中的关键词包进 <sacinfo> 标签，编号会被拆成多个文本节点
+        # （如 <sacinfo>JB</sacinfo>/<sacinfo>T</sacinfo> <sacinfo>3340</sacinfo>-2025）。
+        # 用 string(.) 取完整文本，避免拼接文本节点时凭空插入空格；
+        # 直接取 span.en-code::text 只能拿到第一个文本节点（常为 "/"）。
+        full_text = _collapse_text(link.xpath('string(.)').get(''))
+        en_code = _collapse_text(link.css('span.en-code').xpath('string(.)').get(''))
 
-        raw_code = link.css('span.en-code::text').get('').strip()
-        if not raw_code:
-            raw_code = all_text_parts[0].strip() if all_text_parts else ''
+        # 名称前缀即标准编号，用正则匹配出编号起点，保证名称不含编号
+        prefix_match = _CODE_PREFIX_RE.match(full_text)
+        raw_code = en_code or (prefix_match.group(1) if prefix_match else '')
+        if prefix_match:
+            name = full_text[prefix_match.end():].strip()
+        elif en_code and full_text.startswith(en_code):
+            name = full_text[len(en_code):].strip()
+        else:
+            name = full_text
 
         code = normalize_code(raw_code)
 
-        # 用原始文本做前缀匹配移除标准号，避免 normalize 改变字符导致匹配失败、
-        # 把标准号误混入名称；同时保留名称中间的空格
-        name = full_text
-        if raw_code and full_text.startswith(raw_code):
-            name = full_text[len(raw_code):].strip()
-        name = name.strip()
-
-        status = panel.css('span.s-status.label-info::text').get('').strip()
+        # 状态标签有 label-success/label-danger 等多种样式，第一个 s-status 才是
+        # 标准状态（post-flex 里还有一个空的 s-status，需取首个非空文本）
+        status = next(
+            (t.strip() for t in panel.css('span.s-status::text').getall() if t.strip()),
+            '').strip()
 
         ics = panel.css('span:contains("ICS") + span::text').get('').strip()
         ccs = panel.css('span:contains("CCS") + span::text').get('').strip()
