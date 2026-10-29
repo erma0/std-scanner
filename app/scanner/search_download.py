@@ -93,11 +93,16 @@ class SearchDownloadSession:
             item.pop('failReason', None)
         return status in ('downloaded', 'previewed', 'skipped_existing'), status, reason or ''
 
-    async def download_one(self, item, output_dir=None):
+    async def download_one(self, item, output_dir=None, abort_check=None):
         """下载单条搜索结果，返回 (ok, status, reason)。
 
         item 需包含 code/name/tid/pid；执行后会写入 dlStatus / failReason。
+        abort_check 返回 True 时中止（任务暂停/删除），此时返回 status='aborted'
+        且不改写 item 状态，便于恢复后重试。
         """
+        if abort_check and abort_check():
+            return False, 'aborted', '任务已暂停'
+
         from app.scanner.utils import make_filename
         from app.scanner.download_helpers import (
             fetch_and_save_pdf, extract_hcno_from_html, detect_download_buttons,
@@ -128,11 +133,13 @@ class SearchDownloadSession:
             from app.scanner.tt_scan import _download_one_standard
             std = {'detail_id': pid, 'pid': pid, 'code': code, 'name': name, 'sellable': False}
             try:
-                await _download_one_standard(std, self.existing)
+                await _download_one_standard(std, self.existing, abort_check=abort_check)
             except Exception as e:
                 _log.error(f"  [TT ERROR] {code} {e}")
                 return self._mark(item, 'failed', f'{type(e).__name__}: {e}')
             status = std.get('dlStatus') or 'failed'
+            if status == 'aborted':
+                return False, 'aborted', '任务已暂停'
             item['dlStatus'] = status
             if status == 'downloaded':
                 item.pop('failReason', None)
@@ -167,7 +174,8 @@ class SearchDownloadSession:
             try:
                 pdf_data = await loop.run_in_executor(
                     None, fetch_and_save_pdf,
-                    lambda: download_hb_with_captcha(hb_hash, site_type, reason_out=reason_out),
+                    lambda: download_hb_with_captcha(
+                        hb_hash, site_type, reason_out=reason_out, abort_check=abort_check),
                     filepath, filename, out_dir)
             except CopyrightError as ce:
                 _log.info(f"  [COPY] 版权限制: {ce}")
@@ -179,6 +187,8 @@ class SearchDownloadSession:
                 _log.info(f"  [OK] {filepath} ({len(pdf_data)/1024:.0f}KB)")
                 self.existing.add(filename.lower())
                 return self._mark(item, 'downloaded')
+            if reason_out.get('aborted'):
+                return False, 'aborted', '任务已暂停'
             return self._mark(item, 'failed', reason_out.get('reason', '未知原因'))
 
         # === 国家标准：hcno + 验证码下载，失败时按需预览拼接 ===
@@ -209,7 +219,8 @@ class SearchDownloadSession:
             try:
                 pdf_data = await loop.run_in_executor(
                     None, fetch_and_save_pdf,
-                    lambda: download_with_captcha(hcno, reason_out=reason_out),
+                    lambda: download_with_captcha(
+                        hcno, reason_out=reason_out, abort_check=abort_check),
                     filepath, filename, out_dir)
             except Exception as e:
                 _log.error(f"  [ERROR] {code} {e}")
@@ -218,6 +229,8 @@ class SearchDownloadSession:
                 _log.info(f"  [OK] {filepath} ({len(pdf_data)/1024:.0f}KB)")
                 self.existing.add(filename.lower())
                 return self._mark(item, 'downloaded')
+            if reason_out.get('aborted'):
+                return False, 'aborted', '任务已暂停'
             return self._mark(item, 'failed', reason_out.get('reason', '未知原因'))
 
         if btns.can_preview:
@@ -226,7 +239,10 @@ class SearchDownloadSession:
                 _log.info(f"  [SKIP] 预览拼接不可用: {code}")
                 return self._mark(item, 'preview_disabled', '预览拼接未启用')
             _log.info(f"  [PREV] {code} 预览中...")
-            success = await preview_to_pdf(hcno, str(filepath), browser_ctx)
+            success = await preview_to_pdf(hcno, str(filepath), browser_ctx,
+                                           abort_check=abort_check)
+            if not success and abort_check and abort_check():
+                return False, 'aborted', '任务已暂停'
             if success and filepath.exists() and filepath.stat().st_size > 1000:
                 _log.info(f"  [OK] {filepath} ({filepath.stat().st_size/1024:.0f}KB)")
                 self.existing.add(filename.lower())

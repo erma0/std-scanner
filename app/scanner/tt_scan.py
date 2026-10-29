@@ -294,10 +294,12 @@ def _fetch_pdf_url(standard_unique_id: str) -> Optional[str]:
     return None
 
 
-async def _download_one_standard(std: dict, existing: set) -> dict:
+async def _download_one_standard(std: dict, existing: set, abort_check=None) -> dict:
     """下载单个团体标准 PDF。返回更新后的 std（含 dlStatus / failReason）。
 
     用 httpx 直接调用：详情 API 拿 fileUrl → GET 下载 PDF。
+    abort_check: 可选 callable() → bool，返回 True 时中止（任务暂停/删除），
+                 std['dlStatus'] 置为 'aborted' 但不落盘。
     """
     detail_id = std.get('detail_id') or std.get('pid')
     code = std.get('code', '')
@@ -306,6 +308,10 @@ async def _download_one_standard(std: dict, existing: set) -> dict:
     filename = make_filename(code, name)
     if filename.lower() in existing:
         std[_TT_DL_STATUS] = 'skipped_existing'
+        return std
+
+    if abort_check and abort_check():
+        std[_TT_DL_STATUS] = 'aborted'
         return std
 
     # 付费购买的标准不下载（API 未提供付费标识，保留兼容）
@@ -331,6 +337,9 @@ async def _download_one_standard(std: dict, existing: set) -> dict:
 
     # 下载 PDF
     try:
+        if abort_check and abort_check():
+            std[_TT_DL_STATUS] = 'aborted'
+            return std
         resp = await loop.run_in_executor(
             None,
             lambda: http_client.get(full_url, headers=_tt_download_headers(), timeout=60),

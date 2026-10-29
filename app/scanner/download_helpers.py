@@ -7,6 +7,7 @@
 """
 
 import re
+import time
 import logging
 from typing import Callable, NamedTuple, Optional
 
@@ -53,6 +54,25 @@ def extract_hcno_from_html(html: str) -> Optional[str]:
     """从详情页 HTML 中提取 hcno（32 位十六进制）"""
     m = RE_HCNO.search(html)
     return m.group(1) if m else None
+
+
+def sleep_with_abort(seconds: float, abort_check: Optional[Callable[[], bool]] = None) -> bool:
+    """可中断的延迟：分段睡眠并轮询 abort_check。
+
+    Returns:
+        True 表示正常睡完；False 表示中途被中止（任务暂停/删除）。
+    """
+    if not abort_check:
+        time.sleep(seconds)
+        return True
+    deadline = time.time() + seconds
+    while True:
+        if abort_check():
+            return False
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            return True
+        time.sleep(min(0.2, remaining))
 
 
 def fetch_and_save_pdf(

@@ -25,6 +25,65 @@ def _collapse_text(text):
     return re.sub(r'\s+', ' ', text or '').strip()
 
 
+# 查询/结果编号解析：兼容 "GB/T 50016-2014"、"DB11/T 123-2020"、"T/CECS 1-2020"
+# 以及纯数字 "50016"；末尾允许“（2018年版）”这类后缀
+_STD_CODE_RE = re.compile(
+    r'^\s*([A-Za-z]{1,6}\d*)\s*(?:/\s*[A-Za-z]{1,4})?\s*(\d+(?:\.\d+)?)'
+    r'\s*(?:[-—–]\s*(\d{2,4}))?\s*(?:[（(].*)?$'
+)
+_STD_NUMBER_RE = re.compile(
+    r'^\s*(\d+(?:\.\d+)?)\s*(?:[-—–]\s*(\d{2,4}))?\s*(?:[（(].*)?$'
+)
+
+
+def parse_standard_code(text):
+    """宽松解析标准编号，返回 {'prefix', 'part', 'year'}；非编号返回 None。"""
+    if not text:
+        return None
+    norm = normalize_code(text.strip())
+    m = _STD_CODE_RE.match(norm)
+    if m:
+        return {'prefix': (m.group(1) or '').upper(), 'part': m.group(2),
+                'year': m.group(3) or ''}
+    m = _STD_NUMBER_RE.match(norm)
+    if m:
+        return {'prefix': '', 'part': m.group(1), 'year': m.group(2) or ''}
+    return None
+
+
+def filter_standard_results(query, standards, max_results=None):
+    """按搜索词意图过滤结果，返回 (items, is_code_query)。
+
+    - 关键词：保持站点顺序，最多 max_results 条；
+    - 标准号：只保留编号匹配的结果（指定年份则精确到年份）；未指定年份且
+      存在现行/即将实施版本时，自动排除已废止版本，避免批量下载历史版本。
+    """
+    code_info = parse_standard_code(query)
+    if not code_info:
+        return (standards[:max_results] if max_results else list(standards)), False
+
+    def _match(s):
+        info = parse_standard_code(s.get('code', ''))
+        if not info:
+            return False
+        # 允许基础号命中其分部分（如 GB/T 7588 → GB/T 7588.1-2020）
+        part = code_info['part']
+        if info['part'] != part and not info['part'].startswith(part + '.'):
+            return False
+        if code_info['year'] and info['year'] != code_info['year']:
+            return False
+        if code_info['prefix'] and info['prefix'] != code_info['prefix']:
+            return False
+        return True
+
+    matched = [s for s in standards if _match(s)]
+    if not code_info['year'] and matched:
+        current = [s for s in matched if s.get('status') in ('现行', '即将实施')]
+        if current:
+            matched = current
+    return matched, True
+
+
 def fetch_stdpage_search(query, page=1, std_type='国家标准'):
     """使用标准检索网站搜索标准（HTML 页面）"""
     url = SEARCH_PAGE

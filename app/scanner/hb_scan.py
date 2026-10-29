@@ -15,7 +15,7 @@ from app.keywords import is_safety, is_aq_yj, set_active_group
 from app.dedup import get_existing_files
 from app.scanner.utils import make_filename
 from app.scanner.checkpoint import get_incr_checkpoint, update_incr_checkpoint
-from app.scanner.download_helpers import fetch_and_save_pdf
+from app.scanner.download_helpers import fetch_and_save_pdf, sleep_with_abort
 from app.helpers import normalize_code
 
 _log = logging.getLogger('std_scraper')
@@ -344,7 +344,7 @@ async def download_hb_standards(standards, on_progress=None, on_item_done=None, 
     await _download_standards(standards, 'HB-DL', on_progress=on_progress, on_item_done=on_item_done, check_pause=check_pause)
 
 
-def download_hb_with_captcha(hb_hash, site_type='hb', client=None, reason_out=None):
+def download_hb_with_captcha(hb_hash, site_type='hb', client=None, reason_out=None, abort_check=None):
     """下载行业标准/地方标准 PDF
 
     实测（2026-07）：HB/DB 下载无需验证码，直接 GET /portal/download/{pk} 即可返回 PDF。
@@ -370,6 +370,8 @@ def download_hb_with_captcha(hb_hash, site_type='hb', client=None, reason_out=No
         site_type: 'hb' | 'db'
         client: 可选，外部传入的独立 httpx.Client（并发场景使用，调用方负责关闭）
         reason_out: 可选 dict，失败时写入 'reason' 和 'detail' 字段（调用方读取展示）
+        abort_check: 可选 callable() → bool，返回 True 时中止下载（任务暂停/删除），
+                    并在 reason_out 中写入 'aborted'=True
     """
     if site_type == 'hb':
         base_url = 'https://hbba.sacinfo.org.cn'
@@ -380,6 +382,15 @@ def download_hb_with_captcha(hb_hash, site_type='hb', client=None, reason_out=No
         if reason_out is not None:
             reason_out['reason'] = reason
             reason_out['detail'] = detail
+
+    def _aborted():
+        """任务暂停/删除时中止下载并标记原因"""
+        if abort_check and abort_check():
+            _set_reason('任务已暂停')
+            if reason_out is not None:
+                reason_out['aborted'] = True
+            return True
+        return False
 
     # client=None → 用共享 client（向后兼容）；并发场景由调用方传入独立 client
     own_client = client is not None
@@ -394,6 +405,8 @@ def download_hb_with_captcha(hb_hash, site_type='hb', client=None, reason_out=No
     last_error = None
     try:
         for attempt in range(1, max_retries + 1):
+            if _aborted():
+                return None
             try:
                 # 1. 先访问详情页建立 session（设置必要的 cookie）
                 try:
@@ -426,14 +439,18 @@ def download_hb_with_captcha(hb_hash, site_type='hb', client=None, reason_out=No
 
                 # 下载失败，清空 cookie 重试
                 client.cookies.clear()
-                time.sleep(get_delay())
+                if not sleep_with_abort(get_delay(), abort_check):
+                    _aborted()
+                    return None
             except CopyrightError:
                 # 版权限制：不重试，直接向上抛出
                 raise
             except Exception as e:
                 last_error = f'{type(e).__name__}: {e}'
                 _log.info(f"[HB-DL] 下载异常 (尝试 {attempt}/{max_retries}, pk={hb_hash[:16]}...): {e}")
-                time.sleep(get_delay())
+                if not sleep_with_abort(get_delay(), abort_check):
+                    _aborted()
+                    return None
 
         _log.warning(f"[HB-DL] 下载失败：重试耗尽 ({max_retries}/{max_retries}, pk={hb_hash[:16]}...)")
         _set_reason(f'重试耗尽({max_retries}次): {last_error or "未知原因"}')

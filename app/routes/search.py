@@ -90,7 +90,8 @@ async def search_batch_api(request: Request):
     body: {
         queries: ["关键词1", "标准号1", ...],   # 必填
         std_type: "全部" | "国家标准" | ...,    # 默认 "全部"
-        per_query_max: 20,                      # 单个关键词最大结果数，默认 20
+        per_query_max: 10,                      # 关键词行最大结果数，默认 10
+        exact_match: true,                      # 标准号行精确匹配（默认开启）
         auto_download: true                     # 搜索完成后自动下载，默认 true
     }
 
@@ -101,7 +102,8 @@ async def search_batch_api(request: Request):
     body = await request.json()
     queries = body.get("queries", [])
     std_type = body.get("std_type", "全部")
-    per_query_max = int(body.get("per_query_max", 20))
+    per_query_max = int(body.get("per_query_max", 10))
+    exact_match = bool(body.get("exact_match", True))
     auto_download = bool(body.get("auto_download", True))
 
     # 规范化 queries：字符串可按行拆分
@@ -134,7 +136,12 @@ async def search_batch_api(request: Request):
     async def batch_task():
         try:
             _log.info(f"任务 {task_id}: 批量搜索 {len(queries)} 个关键词")
-            all_items = await _batch_search_dedup(task_id, queries, std_type, per_query_max)
+            all_items = await _batch_search_dedup(task_id, queries, std_type,
+                                                 per_query_max, exact_match)
+
+            # 暂停时等待用户继续，避免直接进入下载阶段或提前标记完成
+            if not await _wait_if_running(task_id):
+                return
 
             if not all_items:
                 update_task_status(task_id, progress=100, status="completed",
@@ -147,6 +154,8 @@ async def search_batch_api(request: Request):
                 update_task_status(task_id, progress=50,
                                  message=f"搜索完成（{len(all_items)} 个），开始下载...")
                 await _download_selected_items(task_id, all_items, progress_base=50)
+                if not await _wait_if_running(task_id):
+                    return
                 update_task_status(task_id, progress=100, status="completed",
                                  message=f"批量任务完成（{len(all_items)} 个标准）",
                                  end_time=time.time())
@@ -179,16 +188,32 @@ async def _wait_if_running(task_id):
         await asyncio.sleep(1)
 
 
-async def _batch_search_dedup(task_id, queries, std_type, per_query_max):
+async def _sleep_with_pause(task_id, seconds):
+    """可中断延迟：暂停时立即挂起，任务删除/结束时返回 False。"""
+    deadline = asyncio.get_running_loop().time() + seconds
+    while True:
+        if not await _wait_if_running(task_id):
+            return False
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            return True
+        await asyncio.sleep(min(0.2, remaining))
+
+
+async def _batch_search_dedup(task_id, queries, std_type, per_query_max, exact_match=True):
     """批量搜索并去重，返回可下载的 items 列表。
 
     每搜完一个关键词就把已匹配结果写回任务，前端可在搜索过程中/暂停时
     看到实时结果，而不是等全部完成。
 
+    exact_match=True 时按查询意图过滤：标准号行只保留编号匹配的结果
+    （未指定年份时自动排除废止版本），关键词行仍按 per_query_max 截断。
+
     去重 key：GB 用 pid；HB/DB 用 code+name（pid 可能跨类型相同）；
     TT（团体标准）用 detail_id。
     """
     from app.scanner import fetch_stdpage_search, check_downloadable, search_tt_standards
+    from app.scanner.search import filter_standard_results, parse_standard_code
     from app.scanner.utils import compute_download_stats
     from config.settings import DETAIL_URL, get_delay
 
@@ -218,8 +243,35 @@ async def _batch_search_dedup(task_id, queries, std_type, per_query_max):
             _log.warning(f"搜索 '{q}' 失败: {e}")
             continue
 
+        if exact_match:
+            standards, is_code_query = filter_standard_results(q, standards)
+        else:
+            is_code_query = False
+            standards = standards[:per_query_max]
+
+        # 编号查询未命中时，用数字部分再搜一次（站点对完整编号的匹配不稳定）
+        if is_code_query and not standards:
+            info = parse_standard_code(q)
+            retry_q = (info['part'] + (f"-{info['year']}" if info['year'] else '')) if info else ''
+            if retry_q and retry_q != q.strip():
+                try:
+                    if is_tt:
+                        retry_standards = await search_tt_standards(retry_q, per_query_max)
+                    else:
+                        retry_standards, _ = await loop.run_in_executor(
+                            None, fetch_stdpage_search, retry_q, 1, std_type)
+                    standards, _ = filter_standard_results(q, retry_standards)
+                except Exception as e:
+                    _log.warning(f"按编号二次搜索 '{retry_q}' 失败: {e}")
+
+        if is_code_query and not standards:
+            _log.info(f"  [{i+1}/{total}] '{q[:40]}' 未匹配到对应编号")
+
         added = 0
-        for s in standards[:per_query_max]:
+        for s in standards:
+            # 暂停时立即挂起；任务删除/结束时停止批量搜索
+            if not await _wait_if_running(task_id):
+                return all_items
             if is_tt:
                 # 团体标准结果格式
                 tid = 'BV_TT'
@@ -284,8 +336,9 @@ async def _batch_search_dedup(task_id, queries, std_type, per_query_max):
                         std_items=all_items,
                         stats={**compute_download_stats(all_items), 'searched': i + 1},
                         persist_std_items=False)
-        # 保护搜索站点
-        await asyncio.sleep(get_delay())
+        # 保护搜索站点（可被暂停/删除中断）
+        if not await _sleep_with_pause(task_id, get_delay()):
+            break
 
     return all_items
 
@@ -346,6 +399,11 @@ async def _download_selected_items(task_id, items, progress_base=0):
     span = 99 - progress_base
     session = SearchDownloadSession(get_output_dir())
 
+    def _should_abort():
+        """暂停或任务被删除时中断正在进行的下载"""
+        task = task_manager.get(task_id)
+        return task is None or task.get('status') == 'paused'
+
     # 先把待下载列表挂到任务上，前端展开详情即可看到完整列表
     update_task_status(task_id, std_items=items,
                        stats=compute_download_stats(items),
@@ -366,10 +424,17 @@ async def _download_selected_items(task_id, items, progress_base=0):
                 continue
 
             _log.info(f"[{i+1}/{total}] 处理: {code} {name}")
-            ok, status, reason = await session.download_one(item)
+            # 被暂停/删除时下载会返回 aborted，恢复后重试当前项
+            while True:
+                ok, status, reason = await session.download_one(item, abort_check=_should_abort)
+                if status != 'aborted':
+                    break
+                if not await _wait_if_running(task_id):
+                    return
             if not ok:
                 _log.info(f"  [FAIL] {status}" + (f": {reason}" if reason else ""))
-                await asyncio.sleep(get_delay())
+                if not await _sleep_with_pause(task_id, get_delay()):
+                    return
 
             # 每处理一条立即回写，列表中的下载状态实时刷新
             task_manager.update(task_id, std_items=items,

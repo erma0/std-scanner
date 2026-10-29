@@ -190,8 +190,11 @@ def _save_page_images_as_pdf(page_images, filepath):
     page_images.clear()
 
 
-async def preview_to_pdf(hcno, filepath, browser_context):
-    """通过在线预览获取 PDF：下载背景图 → 拼图块 → 合成 PDF"""
+async def preview_to_pdf(hcno, filepath, browser_context, abort_check=None):
+    """通过在线预览获取 PDF：下载背景图 → 拼图块 → 合成 PDF
+
+    abort_check: 可选 callable() → bool，返回 True 时中止预览（任务暂停/删除）
+    """
     if browser_context is None:
         _log.debug("[PREVIEW] 无浏览器上下文，跳过预览")
         return None
@@ -200,6 +203,9 @@ async def preview_to_pdf(hcno, filepath, browser_context):
 
     try:
         for retry in range(_MAX_PREVIEW_RETRIES):
+            if abort_check and abort_check():
+                _log.info("[PREVIEW] 任务已暂停，中止预览")
+                return None
             preview_url = f"{CAPTCHA_BASE}/showGb?type=online&hcno={hcno}"
             await pg.goto(preview_url, wait_until='load', timeout=30000)
             await pg.wait_for_timeout(2000)

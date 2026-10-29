@@ -536,8 +536,13 @@ RE_XZ_BTN / RE_CK_BTN / RE_HCNO  # 正则常量
 class DownloadButtons(NamedTuple):  # has_download / has_preview / copyright / can_download / can_preview
 def detect_download_buttons(html) -> DownloadButtons
 def extract_hcno_from_html(html) -> Optional[str]
+def sleep_with_abort(seconds, abort_check=None) -> bool  # 可中断延迟（暂停/删除任务时提前返回 False）
 def fetch_and_save_pdf(download_fn, filepath, filename, output_dir) -> Optional[bytes]
 ```
+
+下载函数 `download_with_captcha` / `download_hb_with_captcha` / `preview_to_pdf` 均支持
+`abort_check`（callable() → bool）：任务暂停时立即中止当前下载并在 `reason_out` 标记
+`aborted`，恢复后由调用方重试该条，避免“暂停无效、后台仍在下载”。
 
 **preview.py** — 预览转 PDF
 ```python
@@ -555,6 +560,9 @@ def fetch_stdpage_search(query, page=1, std_type='国家标准') -> (list, int)
 def get_detail_url_by_tid(tid, pid) -> (detail_url, tid)  # 分发 HB/DB/GB Plan/GB
 def check_downloadable(tid) -> (can_dl, msg)
 def check_hb_downloadable(detail_url) -> (can_download, hb_hash, pattern)
+def parse_standard_code(text) -> dict | None  # {'prefix','part','year'}，宽松解析标准号
+def filter_standard_results(query, standards, max_results=None) -> (items, is_code_query)
+    # 标准号查询精确匹配（含年份）；无年份时排除废止版本；关键词查询按 max_results 截断
 ```
 
 **checkpoint.py** — 统一增量 checkpoint
@@ -670,7 +678,7 @@ async def run_scan_pipeline(
 | 方法 | 路径 | 参数 |
 |------|------|------|
 | POST | `/api/search/query` | `query`, `std_type`, `max_results` |
-| POST | `/api/search/batch` | `queries[]`, `std_type`, `per_query_max`(20), `auto_download`(true)；搜索中实时回写 std_items |
+| POST | `/api/search/batch` | `queries[]`, `std_type`, `per_query_max`(10, 仅关键词), `exact_match`(true, 标准号精确匹配/排除废止), `auto_download`(true)；搜索中实时回写 std_items |
 | POST | `/api/search/download` | `items[]` (tid/pid/code/name) |
 
 ### 任务管理

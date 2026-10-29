@@ -1109,7 +1109,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     </div>
                     <h3 class="text-base font-semibold text-gray-800">批量搜索下载</h3>
                 </div>
-                <p class="text-xs text-gray-500 mb-2 ml-13">每行一个关键词或标准号（# 开头为注释）。搜索后按 pid/code 去重，自动下载全部命中标准。</p>
+                <p class="text-xs text-gray-500 mb-2 ml-13">每行一个关键词或标准号（# 开头为注释）。标准号会精确匹配编号（不含年份时自动排除废止版本），关键词按下方上限保留。</p>
                 <textarea id="batch-search-input" rows="8" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 mb-3 font-mono" placeholder="# 每行一个关键词或标准号，例如：&#10;50016&#10;消防&#10;GB 50016&#10;氨制冷"></textarea>
                 <div class="grid grid-cols-2 gap-3 mb-4">
                     <div>
@@ -1124,10 +1124,14 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                         </select>
                     </div>
                     <div>
-                        <label class="block text-xs text-gray-600 mb-1">每词最大结果</label>
-                        <input type="number" id="batch-search-per-max" value="20" min="1" max="100" class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
+                        <label class="block text-xs text-gray-600 mb-1">关键词每词上限</label>
+                        <input type="number" id="batch-search-per-max" value="10" min="1" max="100" class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
                     </div>
                 </div>
+                <label class="flex items-center text-sm text-gray-700 mb-2 cursor-pointer">
+                    <input type="checkbox" id="batch-search-exact" class="w-4 h-4 text-blue-500 rounded mr-2" checked>
+                    标准号精确匹配（自动排除废止版本）
+                </label>
                 <label class="flex items-center text-sm text-gray-700 mb-4 cursor-pointer">
                     <input type="checkbox" id="batch-search-auto-dl" class="w-4 h-4 text-blue-500 rounded mr-2" checked>
                     搜索完成后自动下载全部结果
@@ -2525,7 +2529,8 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     return;
                 }
                 const stdType = document.getElementById('batch-search-type').value;
-                const perMax = parseInt(document.getElementById('batch-search-per-max').value) || 20;
+                const perMax = parseInt(document.getElementById('batch-search-per-max').value) || 10;
+                const exactMatch = document.getElementById('batch-search-exact').checked;
                 const autoDl = document.getElementById('batch-search-auto-dl').checked;
 
                 const okBtn = document.getElementById('batch-search-ok-btn');
@@ -2539,6 +2544,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             queries,
                             std_type: stdType,
                             per_query_max: perMax,
+                            exact_match: exactMatch,
                             auto_download: autoDl,
                         })
                     });
