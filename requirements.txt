@@ -10,3 +10,4 @@ pystray>=0.19
 psutil>=5.9
 watchfiles>=1.0
 APScheduler>=3.10
+openpyxl>=3.1
