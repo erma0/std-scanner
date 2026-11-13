@@ -145,6 +145,10 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
                             retry_standards, retry_total = await loop.run_in_executor(
                                 None, fetch_stdpage_search, retry_q, 1, std_type)
                             site_total = max(site_total, retry_total)
+                        # 二次搜索才是真正拿到条目的请求，诊断须按它统计，
+                        # 否则会出现"站点显示 1 条但页面未解析"的误报
+                        raw_standards = retry_standards
+                        raw_count = len(raw_standards)
                         standards, _ = filter_standard_results(q, retry_standards, per_query_max)
                         _log.info(f"  [{i+1}/{total}] '{q[:40]}' 完整编号未命中，"
                                   f"改用 '{retry_q}' 二次搜索（站点 {len(retry_standards)} 条，"

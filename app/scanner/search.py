@@ -1,7 +1,10 @@
 """scanner.search — 标准检索网站搜索"""
 
 import re
+import time
 import logging
+
+import httpx
 
 from config.settings import SEARCH_PAGE, http_client
 from app.helpers import normalize_code
@@ -84,6 +87,11 @@ def filter_standard_results(query, standards, max_results=None):
     return matched, True
 
 
+# 站点偶发 5xx/429（与检索词无关），有限重试可避免把服务端抖动当成"查询失败"
+_SEARCH_RETRIES = 2
+_SEARCH_RETRY_STATUS = {429, 500, 502, 503, 504}
+
+
 def fetch_stdpage_search(query, page=1, std_type='国家标准'):
     """使用标准检索网站搜索标准（HTML 页面）"""
     url = SEARCH_PAGE
@@ -96,11 +104,29 @@ def fetch_stdpage_search(query, page=1, std_type='国家标准'):
     if std_type and std_type != '全部':
         params['op'] = f'G_STD_DOMAIN:"{std_type}"'
 
+    resp, last_err = None, None
+    for attempt in range(_SEARCH_RETRIES + 1):
+        try:
+            resp = http_client.get(url, params=params, timeout=30.0)
+        except (httpx.TimeoutException, httpx.TransportError) as e:
+            last_err = e
+        else:
+            if resp.status_code not in _SEARCH_RETRY_STATUS:
+                break
+            last_err = httpx.HTTPStatusError(
+                f'站点返回 {resp.status_code}', request=resp.request, response=resp)
+        if attempt < _SEARCH_RETRIES:
+            wait = 2 * (attempt + 1)
+            _log.warning(f"[SEARCH] 搜索请求失败（{type(last_err).__name__}: {last_err}），"
+                         f"{wait}s 后重试: query={query!r}")
+            time.sleep(wait)
+
+    if resp is None or resp.status_code in _SEARCH_RETRY_STATUS:
+        # 不吞异常：调用方需要区分"站点无结果"和"请求失败"，否则日志会误导用户
+        raise RuntimeError(f'搜索请求失败: {type(last_err).__name__}: {last_err}') from last_err
     try:
-        resp = http_client.get(url, params=params, timeout=30.0)
         resp.raise_for_status()
     except Exception as e:
-        # 不吞异常：调用方需要区分"站点无结果"和"请求失败"，否则日志会误导用户
         raise RuntimeError(f'搜索请求失败: {type(e).__name__}: {e}') from e
 
     sel = Selector(resp.text)
