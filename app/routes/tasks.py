@@ -453,8 +453,10 @@ async def download_all_task_items(task_id: str, skip_obsolete: bool = True):
                         end_time=None, paused_duration=0)
 
     async def download_task():
+        from app.routes.search import (
+            _download_selected_items, _notify_search_done, _notify_search_failed,
+        )
         try:
-            from app.routes.search import _download_selected_items
             _log.info(f"任务 {task_id}: 一键下载 {count} 个标准")
             await _download_selected_items(task_id, items, progress_base=0)
             stats = compute_download_stats(items)
@@ -463,9 +465,11 @@ async def download_all_task_items(task_id: str, skip_obsolete: bool = True):
                 task_id, progress=100, status='completed', end_time=time.time(),
                 message=msg)
             _log.info(f"任务 {task_id}: 一键下载完成")
+            await _notify_search_done(task_id, msg, stats)
         except Exception as e:
             _log.error(f"任务 {task_id} 一键下载异常: {e}")
             task_manager.update(task_id, status='failed', message=str(e), end_time=time.time())
+            await _notify_search_failed(task_id, e)
 
     _launch_task(download_task(), f"download-all-{task_id}")
     return {"success": True, "task_id": task_id, "count": count,

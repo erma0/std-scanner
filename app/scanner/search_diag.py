@@ -9,7 +9,7 @@
 注意：这里的"候选"指加入待下载列表的条目，不等于最终下载成功数。
 """
 
-_MAX_ZERO_SAMPLES = 20
+_MAX_ZERO_SAMPLES = 50
 
 
 class SearchBatchDiag:

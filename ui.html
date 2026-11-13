@@ -4309,6 +4309,28 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             }
         }
 
+        let _searchMissRetry = {};
+
+        async function retrySearchMisses(taskId) {
+            if (_searchMissRetry[taskId]) return;
+            _searchMissRetry[taskId] = true;
+            try {
+                const resp = await fetch(`${API_BASE}/search/task/${taskId}/retry-misses`, { method: 'POST' });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast(`已创建重试任务（${data.count} 个查询）`, 'success');
+                    navigateToPage('tasks');
+                    setTimeout(() => toggleTaskExpand(data.task_id), 500);
+                } else {
+                    showToast(data.detail || '重试失败', 'error');
+                }
+            } catch (e) {
+                showToast('重试失败: ' + (e.message || String(e)), 'error');
+            } finally {
+                delete _searchMissRetry[taskId];
+            }
+        }
+
         async function bumpTaskPriority(taskId) {
             try {
                 const task = await (await fetch(`${API_BASE}/task/${taskId}`)).json();
@@ -4419,6 +4441,8 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             if (!d) return '';
             const summary = _searchDiagSummaryText(d);
             const samples = _searchDiagSamplesHtml(d);
+            const missCount = (d.zero_samples || []).length;
+            const canRetry = missCount > 0 && task.status !== 'running';
             return `<div class="detail-search-diag border border-gray-100 rounded-lg bg-white px-3 py-2">
                 <div class="flex items-center justify-between gap-2">
                     <span class="text-[11px] font-medium text-gray-500 whitespace-nowrap"><i class="fa fa-search mr-1"></i>搜索诊断</span>
@@ -4426,9 +4450,14 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 </div>
                 <div class="detail-search-diag-warning text-[11px] text-orange-500 mt-1" style="${d.warning ? '' : 'display:none'}">${d.warning ? `<i class="fa fa-exclamation-triangle mr-1"></i>${_escapeAttr(d.warning)}` : ''}</div>
                 <details class="detail-search-diag-samples mt-1" style="${samples ? '' : 'display:none'}">
-                    <summary class="text-[11px] text-gray-400 cursor-pointer select-none">最近无新增的查询（${(d.zero_samples || []).length}）</summary>
+                    <summary class="text-[11px] text-gray-400 cursor-pointer select-none">最近无新增的查询（${missCount}）</summary>
                     <ul class="detail-search-diag-list mt-1 space-y-0.5 text-[11px]">${samples}</ul>
                 </details>
+                <div class="detail-search-diag-actions mt-2 text-right" style="${canRetry ? '' : 'display:none'}">
+                    <button class="detail-search-diag-retry text-[11px] text-cyan-600 hover:text-cyan-800" onclick="event.stopPropagation();retrySearchMisses('${task.task_id}')" title="沿用原任务参数，重试最近无新增的查询">
+                        <i class="fa fa-refresh mr-1"></i>重试无新增查询（${missCount}）
+                    </button>
+                </div>
             </div>`;
         }
 
@@ -4458,6 +4487,18 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             if (countEl) {
                 const text = `最近无新增的查询（${(d.zero_samples || []).length}）`;
                 if (countEl.textContent !== text) countEl.textContent = text;
+            }
+            const actionsEl = el.querySelector('.detail-search-diag-actions');
+            const retryBtn = el.querySelector('.detail-search-diag-retry');
+            const missCount = (d.zero_samples || []).length;
+            if (actionsEl) {
+                actionsEl.style.display = (missCount > 0 && task.status !== 'running') ? '' : 'none';
+            }
+            if (retryBtn) {
+                const text = `重试无新增查询（${missCount}）`;
+                if (retryBtn.textContent.trim() !== text) {
+                    retryBtn.innerHTML = `<i class="fa fa-refresh mr-1"></i>${text}`;
+                }
             }
             return true;
         }
