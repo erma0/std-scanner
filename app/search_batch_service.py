@@ -118,10 +118,14 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
                 raw_standards = await search_tt_standards(q, per_query_max)
                 site_total = len(raw_standards)
             elif is_engineering_standard(q):
-                # 工程建设国标（GB 50xxx–55xxx）不在 std.samr，改查住建部公告
+                # 工程建设国标（GB 50xxx–55xxx）不在 std.samr，优先查住建部公告；
+                # 查不到时回退国标检索，避免号段内个别非工程标准被漏掉
                 moh = await loop.run_in_executor(None, find_mohurd_standard, q)
-                raw_standards = [moh] if moh else []
-                site_total = len(raw_standards)
+                if moh:
+                    raw_standards, site_total = [moh], 1
+                else:
+                    raw_standards, site_total = await loop.run_in_executor(
+                        None, fetch_stdpage_search, q, 1, std_type)
             else:
                 raw_standards, site_total = await loop.run_in_executor(
                     None, fetch_stdpage_search, q, 1, std_type)
