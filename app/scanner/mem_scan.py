@@ -329,6 +329,7 @@ async def _scan_one_source(
     check_pause: Callable,
     progress_share: float = 1.0,
     progress_base: int = 0,
+    on_error: Callable = None,
 ) -> list:
     """扫描单个源（bz 或 gz）。
 
@@ -385,7 +386,10 @@ async def _scan_one_source(
         try:
             html = await loop.run_in_executor(None, _call_list_page, page_no, source)
         except Exception as e:
-            _log.error(f"[MEM][{source}] 第{page_no}页列表请求失败: {e}")
+            if on_error:
+                on_error(source, page_no, e)
+            else:
+                _log.error(f"[MEM][{source}] 第{page_no}页列表请求失败: {e}")
             break
 
         page_items = _parse_list_items(html, source)
@@ -452,6 +456,7 @@ async def scan_mem_standards(
     check_pause: Callable = None,
     status: str = '现行',
     source: str = 'bz',
+    on_error: Callable = None,
 ) -> list:
     """扫描应急管理部标准/规章列表（httpx 直接抓取 HTML 列表页）。
 
@@ -514,10 +519,10 @@ async def scan_mem_standards(
         bz_std, gz_std = await asyncio.gather(
             _scan_one_source('bz', max_results, incr, is_all, status,
                              _bz_progress, _bz_intermediate, check_pause,
-                             progress_share=0.5, progress_base=0),
+                             progress_share=0.5, progress_base=0, on_error=on_error),
             _scan_one_source('gz', max_results, incr, is_all, status,
                              _gz_progress, _gz_intermediate, check_pause,
-                             progress_share=0.5, progress_base=50),
+                             progress_share=0.5, progress_base=50, on_error=on_error),
         )
         all_standards = bz_std + gz_std
         _log.info(f"[MEM][all] 两源合并: bz={len(bz_std)} + gz={len(gz_std)} = {len(all_standards)} 条")
@@ -526,7 +531,7 @@ async def scan_mem_standards(
     # 单源扫描
     return await _scan_one_source(
         source, max_results, incr, is_all, status,
-        on_progress, on_intermediate, check_pause,
+        on_progress, on_intermediate, check_pause, on_error=on_error,
     )
 
 
@@ -707,10 +712,16 @@ async def _run_multi_sites(
     sites_cfg: [{'site': 'mem', 'source': 'bz'}, {'site': 'samr', 'source': 'aqjsgf'}, ...]
     其余 config 字段（max_results/incr/keyword_group/scan_only/std_state）对所有子管线共享。
     """
+    from app.scanner.utils import ScanErrorCollector
+
     n = len(sites_cfg)
     # 每个子管线分配均等的 scan/download 进度范围
     sub_scan = max(1, progress_per_scan // n)
     sub_dl = max(1, progress_per_download // n)
+
+    # 共享错误收集器：各子站点累加失败页，最后统一汇总到任务告警
+    scan_errors = ScanErrorCollector(task_manager, task_id, '[MEM-MULTI]')
+    scan_errors.reset()
 
     all_standards = []
     for idx, target in enumerate(sites_cfg):
@@ -729,8 +740,13 @@ async def _run_multi_sites(
         standards = await run_mem_pipeline(
             config=sub_config, task_id=task_id, task_manager=task_manager,
             progress_base=sub_base, progress_per_scan=sub_scan, progress_per_download=sub_dl,
+            error_collector=scan_errors,
         )
         all_standards.extend(standards)
+
+    scan_note = scan_errors.note()
+    if not all_standards and scan_errors.count:
+        scan_errors.raise_if_empty(all_standards)
 
     # 合并最终状态
     if task_manager and task_id:
@@ -739,11 +755,14 @@ async def _run_multi_sites(
         task_manager.update(task_id,
             progress=progress_base + progress_per_scan + progress_per_download,
             dl_progress=100,
-            message=format_download_summary(stats, prefix='政策法规下载'),
+            message=format_download_summary(stats, prefix='政策法规下载') +
+                    (f'；{scan_note}' if scan_note else ''),
+            scan_note=scan_note,
             stats=stats,
             std_items=all_standards)
 
-    _log.info(f"[MEM-MULTI] 多站点完成: 共 {len(all_standards)} 条")
+    _log.info(f"[MEM-MULTI] 多站点完成: 共 {len(all_standards)} 条"
+              + (f"；{scan_note}" if scan_note else ''))
     return all_standards
 
 
@@ -755,6 +774,7 @@ async def run_mem_pipeline(
     progress_base: int = 0,
     progress_per_scan: int = 40,
     progress_per_download: int = 60,
+    error_collector=None,
 ) -> list:
     """政策法规统一管线：scan + download，全部基于 httpx。
 
@@ -779,10 +799,11 @@ async def run_mem_pipeline(
             config=config, task_id=task_id, task_manager=task_manager,
             progress_base=progress_base, progress_per_scan=progress_per_scan,
             progress_per_download=progress_per_download,
+            error_collector=error_collector,
         )
 
     from app.scanner.change_tracker import compare_snapshot
-    from app.scanner.utils import compute_download_stats, format_download_summary
+    from app.scanner.utils import compute_download_stats, format_download_summary, ScanErrorCollector
 
     max_results = config.get('max_results', 500)
     incr = config.get('incr', False)
@@ -842,24 +863,34 @@ async def run_mem_pipeline(
             task_manager.update(task_id, **kwargs)
 
     # === 阶段1: 扫描 ===
+    scan_errors = error_collector or ScanErrorCollector(task_manager, task_id, f'[MEM][{source}]')
+    if error_collector is None:
+        scan_errors.reset()
     if task_manager and task_id:
         task_manager.update(task_id, progress=progress_base + 1,
-                            scan_progress=0, message=f'扫描应急管理部{source_label}...')
+                            scan_progress=0, message=f'扫描应急管理部{source_label}...',
+                            persist_std_items=False)
 
     standards = await scan_mem_standards(
         max_results=max_results, incr=incr,
         keyword_group=keyword_group, on_progress=_on_scan_progress,
         on_intermediate=_on_intermediate, check_pause=_check_pause, status=std_state,
-        source=source,
+        source=source, on_error=scan_errors.callback,
     )
     standards_holder.append(standards)
 
+    scan_note = scan_errors.note()
+
     if task_manager and task_id:
         task_manager.update(task_id, progress=progress_base + progress_per_scan,
-                            scan_progress=100, message=f'应急管理部{source_label}扫描完成({len(standards)}条)',
+                            scan_progress=100,
+                            message=f'应急管理部{source_label}扫描完成({len(standards)}条)' +
+                                    scan_errors.message_suffix(),
+                            scan_note=scan_note,
                             stats={'scanned': len(standards)}, std_items=standards)
 
-    _log.info(f"[MEM][{source}] {source_label}扫描完成: {len(standards)} 条")
+    _log.info(f"[MEM][{source}] {source_label}扫描完成: {len(standards)} 条"
+              + (f"；{scan_note}" if scan_note else ''))
 
     # 变更追踪
     try:
@@ -871,13 +902,17 @@ async def run_mem_pipeline(
 
     # 扫描结果为空：区分"无新增（增量命中）"和"无符合条件标准"，跳过下载阶段
     if not standards:
+        if error_collector is None:
+            scan_errors.raise_if_empty(standards)
         if task_manager and task_id:
             state_label = std_state or '全部'
             empty_msg = '无新增' if incr else '无符合条件'
             task_manager.update(task_id,
                 progress=progress_base + progress_per_scan + progress_per_download,
                 dl_progress=100,
-                message=f"{empty_msg}{source_label}（{state_label}），跳过下载",
+                message=f"{empty_msg}{source_label}（{state_label}），跳过下载" +
+                        scan_errors.message_suffix(),
+                scan_note=scan_note,
                 stats={'scanned': 0, 'downloaded': 0, 'success': 0, 'failed': 0, 'skipped': 0},
                 std_items=[])
         _log.info(f"[MEM][{source}] {empty_msg}{source_label}（{std_state or '全部'}），跳过下载")

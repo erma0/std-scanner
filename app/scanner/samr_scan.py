@@ -522,7 +522,10 @@ async def _scan_one_source(
                 total_count = tc
                 _log.info(f"[SAMR][{source}] 总条数: {total_count}")
         except Exception as e:
-            _log.error(f"[SAMR][{source}] 第{page_no}页列表请求失败: {e}")
+            if on_error:
+                on_error(source, page_no, e)
+            else:
+                _log.error(f"[SAMR][{source}] 第{page_no}页列表请求失败: {e}")
             break
 
         page_items = _parse_list_items(html, source)
@@ -593,6 +596,7 @@ async def scan_samr_standards(
     check_pause: Callable = None,
     status: str = '现行',
     source: str = 'aqjsgf',
+    on_error: Callable = None,
 ) -> list:
     """扫描市场监管总局政策法规列表（httpx 直连 jpaas API）。
 
@@ -823,10 +827,11 @@ async def run_samr_pipeline(
     progress_base: int = 0,
     progress_per_scan: int = 40,
     progress_per_download: int = 60,
+    error_collector=None,
 ) -> list:
     """市场监管总局政策法规统一管线：scan + download，全部基于 httpx。"""
     from app.scanner.change_tracker import compare_snapshot
-    from app.scanner.utils import compute_download_stats, format_download_summary
+    from app.scanner.utils import compute_download_stats, format_download_summary, ScanErrorCollector
 
     max_results = config.get('max_results', 500)
     incr = config.get('incr', False)
@@ -887,24 +892,34 @@ async def run_samr_pipeline(
             task_manager.update(task_id, **kwargs)
 
     # === 阶段1: 扫描 ===
+    scan_errors = error_collector or ScanErrorCollector(task_manager, task_id, f'[SAMR][{source}]')
+    if error_collector is None:
+        scan_errors.reset()
     if task_manager and task_id:
         task_manager.update(task_id, progress=progress_base + 1,
-                            scan_progress=0, message=f'扫描市场监管总局{source_label}...')
+                            scan_progress=0, message=f'扫描市场监管总局{source_label}...',
+                            persist_std_items=False)
 
     standards = await scan_samr_standards(
         max_results=max_results, incr=incr,
         keyword_group=keyword_group, on_progress=_on_scan_progress,
         on_intermediate=_on_intermediate, check_pause=_check_pause, status=std_state,
-        source=source,
+        source=source, on_error=scan_errors.callback,
     )
     standards_holder.append(standards)
 
+    scan_note = scan_errors.note()
+
     if task_manager and task_id:
         task_manager.update(task_id, progress=progress_base + progress_per_scan,
-                            scan_progress=100, message=f'市场监管总局{source_label}扫描完成({len(standards)}条)',
+                            scan_progress=100,
+                            message=f'市场监管总局{source_label}扫描完成({len(standards)}条)' +
+                                    scan_errors.message_suffix(),
+                            scan_note=scan_note,
                             stats={'scanned': len(standards)}, std_items=standards)
 
-    _log.info(f"[SAMR][{source}] {source_label}扫描完成: {len(standards)} 条")
+    _log.info(f"[SAMR][{source}] {source_label}扫描完成: {len(standards)} 条"
+              + (f"；{scan_note}" if scan_note else ''))
 
     # 变更追踪
     try:
@@ -916,13 +931,17 @@ async def run_samr_pipeline(
 
     # 扫描结果为空：跳过下载阶段
     if not standards:
+        if error_collector is None:
+            scan_errors.raise_if_empty(standards)
         if task_manager and task_id:
             state_label = std_state or '全部'
             empty_msg = '无新增' if incr else '无符合条件'
             task_manager.update(task_id,
                 progress=progress_base + progress_per_scan + progress_per_download,
                 dl_progress=100,
-                message=f"{empty_msg}{source_label}（{state_label}），跳过下载",
+                message=f"{empty_msg}{source_label}（{state_label}），跳过下载" +
+                        scan_errors.message_suffix(),
+                scan_note=scan_note,
                 stats={'scanned': 0, 'downloaded': 0, 'success': 0, 'failed': 0, 'skipped': 0},
                 std_items=[])
         _log.info(f"[SAMR][{source}] {empty_msg}{source_label}（{std_state or '全部'}），跳过下载")

@@ -46,6 +46,7 @@ def compute_download_stats(standards):
     skipped_nodl = 0
     copyright_restricted = 0
     pending = 0
+    fail_reasons = {}
     for s in standards:
         st = s.get('dlStatus') or ''
         if not st:
@@ -62,6 +63,9 @@ def compute_download_stats(standards):
                 skipped_nodl += 1
                 continue
             failed += 1
+            reason = str(s.get('failReason') or st).strip()
+            if reason:
+                fail_reasons[reason] = fail_reasons.get(reason, 0) + 1
         elif st == 'skipped_existing':
             skipped_existing += 1
         elif st == 'skipped_obsolete':
@@ -87,6 +91,7 @@ def compute_download_stats(standards):
         'skipped_nodl': skipped_nodl,
         'copyright': copyright_restricted,
         'pending': pending,
+        'fail_reasons': fail_reasons,
     }
 
 
@@ -120,11 +125,18 @@ def dl_status_label(status):
     return status
 
 
+def _short_text(text, limit=40):
+    """压缩多行/超长失败原因为单行短文本。"""
+    text = ' '.join(str(text or '').split())
+    return text if len(text) <= limit else text[:limit - 1] + '…'
+
+
 def format_download_summary(stats, prefix='处理完成'):
     """按真实下载结果生成任务结束文案。
 
     只有真正落盘（success > 0）才使用"下载完成"式表述；全部不可下载/跳过时
     明确说明"未下载任何文件"，避免把版权保护误读成下载成功。
+    有失败时附带出现次数最多的主要原因，便于直接判断问题类型。
     """
     success = stats.get('success', 0)
     failed = stats.get('failed', 0)
@@ -150,9 +162,17 @@ def format_download_summary(stats, prefix='处理完成'):
 
     if not parts:
         return '没有需要处理的标准'
+
+    reason_tail = ''
+    fail_reasons = stats.get('fail_reasons') or {}
+    if failed and fail_reasons:
+        top = sorted(fail_reasons.items(), key=lambda x: -x[1])[:3]
+        reason_tail = '；主要原因: ' + '；'.join(
+            f'{_short_text(r)}（{c}条）' for r, c in top)
+
     if not success and not failed and not pending:
-        return '未下载任何文件：' + '，'.join(parts)
-    return f'{prefix}：' + '，'.join(parts)
+        return '未下载任何文件：' + '，'.join(parts) + reason_tail
+    return f'{prefix}：' + '，'.join(parts) + reason_tail
 
 
 def make_filename(code, name, suffix='.pdf'):
@@ -175,3 +195,77 @@ def make_filename(code, name, suffix='.pdf'):
         n = n[:available] + '_'
     raw = f"{c} {n}{suffix}"
     return safe_filename(raw)
+
+
+class ScanErrorCollector:
+    """统一收集扫描页请求失败，生成日志、任务告警与失败文案。
+
+    支持两种回调签名：
+      - GB/TT: (page, exc)
+      - HB/DB: (label, page, exc)
+
+    用法：
+        errors = ScanErrorCollector(task_manager, task_id, '[GB]')
+        errors.reset()
+        await scan_pages(..., on_error=errors.callback)
+        message = '扫描完成' + errors.message_suffix()
+        errors.publish()
+        errors.raise_if_empty(standards)
+    """
+
+    def __init__(self, task_manager=None, task_id=None, log_prefix=''):
+        self.task_manager = task_manager
+        self.task_id = task_id
+        self.log_prefix = log_prefix
+        self.errors = []
+
+    def reset(self):
+        """开始新一轮扫描：清空计数并清除任务上的旧告警。"""
+        self.errors = []
+        if self.task_manager and self.task_id:
+            self.task_manager.update(self.task_id, scan_note='', persist_std_items=False)
+
+    @property
+    def count(self):
+        return len(self.errors)
+
+    def callback(self, *args):
+        if len(args) == 2:
+            label, page, exc = '', args[0], args[1]
+        else:
+            label, page, exc = args
+        prefix = f'{label} ' if label else ''
+        msg = f'{prefix}第{page}页 {type(exc).__name__}: {exc}'
+        self.errors.append(msg)
+        _log.warning(f"{self.log_prefix} 扫描请求失败: {msg}")
+
+    def note(self):
+        """部分失败时的提示文案；无失败返回空字符串。"""
+        if not self.errors:
+            return ''
+        return (f'{len(self.errors)} 页请求失败，结果可能不完整'
+                f'（最近：{self.errors[-1]}）')
+
+    def message_suffix(self):
+        note = self.note()
+        return f'，{note}' if note else ''
+
+    def publish(self):
+        """把告警写入任务字段（供前端卡片展示），返回告警文案。"""
+        note = self.note()
+        if self.task_manager and self.task_id:
+            self.task_manager.update(self.task_id, scan_note=note, persist_std_items=False)
+        return note
+
+    def fail_message(self):
+        """完全无结果时的失败文案；无失败返回空字符串。"""
+        if not self.errors:
+            return ''
+        return f'扫描失败：{len(self.errors)} 页请求失败（最近：{self.errors[-1]}）'
+
+    def raise_if_empty(self, standards):
+        """扫描无结果且有请求失败时抛出明确异常，避免误报"无符合条件标准"。"""
+        if not standards and self.errors:
+            msg = self.fail_message()
+            _log.error(f"{self.log_prefix} {msg}")
+            raise RuntimeError(msg)

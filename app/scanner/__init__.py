@@ -27,6 +27,7 @@ _SUBMODULE_MAP = {
     'make_filename': 'app.scanner.utils',
     'compute_download_stats': 'app.scanner.utils',
     'format_download_summary': 'app.scanner.utils',
+    'ScanErrorCollector': 'app.scanner.utils',
     'load_scan_checkpoint': 'app.scanner.checkpoint',
     'get_incr_checkpoint': 'app.scanner.checkpoint',
     'update_incr_checkpoint': 'app.scanner.checkpoint',
