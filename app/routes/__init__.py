@@ -40,6 +40,7 @@ from app.routes.files import router as files_router
 from app.routes.search import router as search_router
 from app.routes.sse import router as sse_router
 from app.routes.checkpoint import router as checkpoint_router
+from app.routes.logs import router as logs_router
 
 pywebview_window = None
 _main_loop = None
@@ -210,6 +211,7 @@ app.include_router(files_router)
 app.include_router(search_router)
 app.include_router(sse_router)
 app.include_router(checkpoint_router)
+app.include_router(logs_router)
 
 
 # ==================== 根路由 + 健康检查 ====================

@@ -1040,6 +1040,12 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                                 <span class="text-xs text-gray-400">秒</span>
                                             </div>
                                         </div>
+                                        <div class="flex items-center gap-3 pt-1">
+                                            <button onclick="openLogsModal()" class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs transition-colors">
+                                                <i class="fa fa-file-text-o mr-1"></i>查看运行日志
+                                            </button>
+                                            <span class="text-xs text-gray-400">排查搜索/下载问题时可查看最近日志</span>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -1145,6 +1151,45 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     <button id="batch-search-ok-btn" class="flex-1 primary-btn text-white font-medium py-2 px-4 rounded-lg text-sm">开始批量搜索</button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div id="logs-modal" class="fixed inset-0 modal-overlay flex items-center justify-center z-modal-front hidden">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl mx-4 flex flex-col" style="height:80vh">
+            <div class="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+                <div class="flex items-center gap-2 min-w-0">
+                    <i class="fa fa-file-text-o text-blue-500"></i>
+                    <h3 class="text-base font-semibold text-gray-800">运行日志</h3>
+                    <span id="logs-file-label" class="text-xs text-gray-400 truncate"></span>
+                </div>
+                <button onclick="closeLogsModal()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fa fa-times text-lg"></i>
+                </button>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 px-5 py-2 border-b border-gray-100 bg-gray-50">
+                <select id="logs-file-select" onchange="refreshLogs()" class="px-2 py-1 border border-gray-300 rounded text-xs bg-white max-w-[220px]"></select>
+                <select id="logs-lines-select" onchange="refreshLogs()" class="px-2 py-1 border border-gray-300 rounded text-xs bg-white">
+                    <option value="200">最近 200 行</option>
+                    <option value="500" selected>最近 500 行</option>
+                    <option value="1000">最近 1000 行</option>
+                    <option value="2000">最近 2000 行</option>
+                </select>
+                <label class="flex items-center gap-1 text-xs text-gray-600 cursor-pointer">
+                    <input type="checkbox" id="logs-auto-refresh" class="w-3.5 h-3.5" checked>
+                    自动刷新（3 秒）
+                </label>
+                <button onclick="refreshLogs()" class="px-2 py-1 text-xs text-blue-600 hover:text-blue-800">
+                    <i class="fa fa-refresh mr-1"></i>刷新
+                </button>
+                <button onclick="copyLogs()" class="px-2 py-1 text-xs text-gray-600 hover:text-gray-800">
+                    <i class="fa fa-copy mr-1"></i>复制
+                </button>
+                <button onclick="openLogDir()" class="px-2 py-1 text-xs text-gray-600 hover:text-gray-800">
+                    <i class="fa fa-folder-open mr-1"></i>打开目录
+                </button>
+                <span id="logs-status" class="text-xs text-gray-400 ml-auto"></span>
+            </div>
+            <pre id="logs-content" class="flex-1 overflow-auto px-5 py-3 text-xs text-gray-700 font-mono whitespace-pre-wrap break-all"></pre>
         </div>
     </div>
 
@@ -2172,6 +2217,104 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
             } catch (e) {
                 console.error('加载配置失败:', e);
+            }
+        }
+
+        // ===== 应用内日志查看 =====
+        let _logsTimer = null;
+
+        async function openLogsModal() {
+            document.getElementById('logs-modal').classList.remove('hidden');
+            await loadLogFiles();
+            await refreshLogs();
+            _startLogsAutoRefresh();
+        }
+
+        function closeLogsModal() {
+            document.getElementById('logs-modal').classList.add('hidden');
+            if (_logsTimer) {
+                clearInterval(_logsTimer);
+                _logsTimer = null;
+            }
+        }
+
+        function _startLogsAutoRefresh() {
+            if (_logsTimer) clearInterval(_logsTimer);
+            _logsTimer = setInterval(() => {
+                const modal = document.getElementById('logs-modal');
+                const cb = document.getElementById('logs-auto-refresh');
+                if (modal.classList.contains('hidden')) {
+                    clearInterval(_logsTimer);
+                    _logsTimer = null;
+                    return;
+                }
+                if (cb && cb.checked) refreshLogs();
+            }, 3000);
+        }
+
+        async function loadLogFiles() {
+            const sel = document.getElementById('logs-file-select');
+            if (!sel) return;
+            const prev = sel.value;
+            try {
+                const resp = await fetch(`${API_BASE}/logs/files`);
+                const data = await resp.json();
+                const files = data.files || [];
+                sel.innerHTML = files.length
+                    ? files.map(f => `<option value="${_escapeAttr(f.name)}">${_escapeAttr(f.name)}</option>`).join('')
+                    : '<option value="">暂无日志文件</option>';
+                if (prev && files.some(f => f.name === prev)) sel.value = prev;
+            } catch (e) {
+                sel.innerHTML = '<option value="">日志列表读取失败</option>';
+            }
+        }
+
+        async function refreshLogs() {
+            const modal = document.getElementById('logs-modal');
+            if (!modal || modal.classList.contains('hidden')) return;
+            const sel = document.getElementById('logs-file-select');
+            const content = document.getElementById('logs-content');
+            const status = document.getElementById('logs-status');
+            const lines = document.getElementById('logs-lines-select').value;
+            const file = sel ? sel.value : '';
+            // 用户停留在底部时才自动跟随新日志，避免打断向上翻查
+            const atBottom = content.scrollTop + content.clientHeight >= content.scrollHeight - 24;
+            try {
+                const resp = await fetch(`${API_BASE}/logs/tail?lines=${encodeURIComponent(lines)}` +
+                    (file ? `&file=${encodeURIComponent(file)}` : ''));
+                const data = await resp.json();
+                if (!resp.ok) {
+                    status.textContent = data.detail || '读取失败';
+                    return;
+                }
+                document.getElementById('logs-file-label').textContent = data.file || '';
+                content.textContent = (data.lines || []).join('\n') || (data.message || '（无日志内容）');
+                status.textContent = data.file ? `${(data.lines || []).length} 行` : '无日志文件';
+                if (atBottom) content.scrollTop = content.scrollHeight;
+            } catch (e) {
+                status.textContent = '读取失败: ' + (e.message || String(e));
+            }
+        }
+
+        function copyLogs() {
+            const text = document.getElementById('logs-content').textContent || '';
+            if (!text.trim()) {
+                showToast('暂无可复制的日志', 'warning');
+                return;
+            }
+            _copyText(text)
+                .then(() => showToast('日志已复制', 'success'))
+                .catch(() => showToast('复制失败，请检查浏览器权限', 'error'));
+        }
+
+        async function openLogDir() {
+            try {
+                const resp = await fetch(`${API_BASE}/logs/open-dir`, { method: 'POST' });
+                const data = await resp.json();
+                if (data.success) showToast('已打开日志目录', 'success');
+                else showToast(data.detail || '打开目录失败', 'error');
+            } catch (e) {
+                showToast('打开目录失败: ' + (e.message || String(e)), 'error');
             }
         }
 
