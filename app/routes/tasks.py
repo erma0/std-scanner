@@ -326,7 +326,7 @@ async def set_task_priority(task_id: str, request: Request):
 async def retry_single_item(task_id: str, item_index: int):
     """重试下载单条标准（不重新扫描，仅重新下载该条）"""
     from app.keywords import set_active_group
-    from app.scanner.utils import compute_download_stats
+    from app.scanner.utils import compute_download_stats, dl_status_label
     from app.dedup import get_existing_files
     from config.settings import get_output_dir
 
@@ -349,17 +349,41 @@ async def retry_single_item(task_id: str, item_index: int):
     if not os.path.isdir(output_dir):
         os.makedirs(output_dir, exist_ok=True)
 
-    existing = get_existing_files()
-    ok, status, reason = await _do_retry_one(items[item_index], std_type, output_dir, existing)
+    item = items[item_index]
+    code = item.get('stdCode') or item.get('code', '')
+    name = item.get('stdName') or item.get('name', '')
+    item_label = f"{code} {name}".strip()
+
+    # 立即标记下载中并推送，前端可即时看到进度而不是无反馈等待
+    item['dlStatus'] = 'downloading'
+    item.pop('failReason', None)
+    task_manager.update(task_id, std_items=items, message=f'正在下载: {item_label}',
+                      currentItem=item_label, persist_std_items=False)
+
+    existing = await asyncio.get_running_loop().run_in_executor(None, get_existing_files)
+    try:
+        ok, status, reason = await _do_retry_one(item, std_type, output_dir, existing)
+    except Exception as e:
+        # 单条异常不应让接口 500，统一转为失败状态供用户重试
+        item['dlStatus'] = 'failed'
+        item['failReason'] = f'{type(e).__name__}: {e}'
+        ok, status, reason = False, 'failed', item['failReason']
+    if item.get('dlStatus') == 'downloading':
+        # 兜底：下载流程未写入终态时按失败处理，避免一直停留在"下载中"
+        item['dlStatus'] = 'failed'
+        item['failReason'] = item.get('failReason') or '下载流程未返回结果'
+        ok, status, reason = False, 'failed', item['failReason']
+
     # 友好提示：成功显示状态，失败显示具体原因
+    label = dl_status_label(status)
     if ok:
-        msg = f"重试 #{item_index}: 成功 ({status})"
+        msg = f"{item_label}：{label}"
     else:
-        msg = f"重试 #{item_index}: 失败 ({status}) - {reason}" if reason else f"重试 #{item_index}: 失败 ({status})"
+        msg = f"{item_label}：{label}" + (f"（{reason}）" if reason else "")
 
     task_manager.update(task_id, std_items=items,
                       stats=compute_download_stats(items),
-                      message=msg)
+                      message=msg, currentItem='')
     return {"success": True, "status": status, "item_index": item_index,
             "message": msg, "ok": ok, "reason": reason}
 
@@ -368,16 +392,21 @@ async def retry_single_item(task_id: str, item_index: int):
 async def download_all_task_items(task_id: str, skip_obsolete: bool = True):
     """一键下载搜索结果任务中所有尚未完成的标准（不重新搜索）。
 
-    skip_obsolete=True 时先把废止标准标记为 skipped_obsolete，
-    保留记录展示"为什么没下载"，也不会被计入待下载数量。
+    - 已完成/失败/中断的任务：新起下载协程
+    - 已暂停的任务：继续原后台任务，并让批量搜索直接进入下载阶段
+    - skip_obsolete=True 时先把废止标准标记为 skipped_obsolete
+    - 本地已存在的标准先标记 skipped_existing，不进入下载队列
     """
-    from app.scanner.search_download import FINAL_STATUSES, mark_obsolete_skipped
+    from app.scanner.search_download import (
+        FINAL_STATUSES, mark_obsolete_skipped, mark_existing_skipped,
+    )
     from app.scanner.utils import compute_download_stats, format_download_summary
 
     task = task_manager.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
-    if task.get('status') in ('running', 'pending'):
+    status = task.get('status')
+    if status in ('running', 'pending'):
         raise HTTPException(status_code=400, detail="任务正在运行，请等待完成后再下载")
     if task.get('std_type') not in ('search', 'search_batch'):
         raise HTTPException(status_code=400, detail="仅搜索结果任务支持一键下载")
@@ -387,17 +416,39 @@ async def download_all_task_items(task_id: str, skip_obsolete: bool = True):
         raise HTTPException(status_code=400, detail="任务中没有可下载的标准")
 
     skipped_obsolete = mark_obsolete_skipped(items) if skip_obsolete else 0
+    loop = asyncio.get_running_loop()
+    skipped_existing = await loop.run_in_executor(None, mark_existing_skipped, items)
     count = sum(1 for it in items if it.get('dlStatus') not in FINAL_STATUSES)
+    skip_notes = ''
+    if skipped_obsolete:
+        skip_notes += f"，跳过废止 {skipped_obsolete}"
+    if skipped_existing:
+        skip_notes += f"，本地已有 {skipped_existing}"
+
     if count == 0:
         stats = compute_download_stats(items)
         msg = format_download_summary(stats)
         task_manager.update(task_id, std_items=items, stats=stats, message=msg)
         return {"success": True, "task_id": task_id, "count": 0,
-                "skipped_obsolete": skipped_obsolete, "message": msg}
+                "skipped_obsolete": skipped_obsolete,
+                "skipped_existing": skipped_existing, "message": msg}
+
+    # 暂停中的任务：不另起协程，直接唤醒原任务继续执行，避免两个下载循环并发。
+    # 批量搜索任务额外打上 _download_only 标记，让搜索阶段立即收尾进入下载。
+    if status == 'paused':
+        if not task_manager.resume(task_id):
+            raise HTTPException(status_code=400, detail="任务状态异常，请刷新后重试")
+        task_manager.update(task_id, _download_only=True,
+                            message=f'结束搜索，开始下载 {count} 个标准{skip_notes}',
+                            std_items=items, stats=compute_download_stats(items),
+                            end_time=None)
+        _log.info(f"任务 {task_id}: 从暂停恢复并转入下载 {count} 个标准")
+        return {"success": True, "task_id": task_id, "count": count,
+                "skipped_obsolete": skipped_obsolete,
+                "skipped_existing": skipped_existing, "resumed": True}
 
     task_manager.update(task_id, status='running', progress=0,
-                        message=f'开始下载 {count} 个标准' +
-                                (f'（跳过废止 {skipped_obsolete}）' if skipped_obsolete else ''),
+                        message=f'开始下载 {count} 个标准{skip_notes}',
                         std_items=items, stats=compute_download_stats(items),
                         end_time=None, paused_duration=0)
 
@@ -474,13 +525,19 @@ async def retry_all_failed(task_id: str):
     _log.info(f"批量重试 task={task_id} 失败项: {len(failed_indices)} 条")
 
     for i, idx in enumerate(failed_indices):
-        ok, status, reason = await _do_retry_one(items[idx], std_type, output_dir, existing)
+        target = items[idx]
+        label = f"{target.get('stdCode') or target.get('code', '')} " \
+                f"{target.get('stdName') or target.get('name', '')}".strip()
+        task_manager.update(task_id,
+                          message=f"批量重试 {i+1}/{len(failed_indices)}: {label}",
+                          currentItem=label, persist_std_items=False)
+        ok, status, reason = await _do_retry_one(target, std_type, output_dir, existing)
         if ok:
             ok_count += 1
             # 下载成功后更新 existing 快照，防止同批次重复下载
-            filename = make_filename(items[idx].get('stdCode') or items[idx].get('code', ''),
-                                     items[idx].get('stdName') or items[idx].get('name', ''),
-                                     suffix=items[idx].get('file_ext') or '.pdf')
+            filename = make_filename(target.get('stdCode') or target.get('code', ''),
+                                     target.get('stdName') or target.get('name', ''),
+                                     suffix=target.get('file_ext') or '.pdf')
             existing.add(filename.lower())
         else:
             fail_count += 1
@@ -488,10 +545,11 @@ async def retry_all_failed(task_id: str):
                 fail_reasons[reason] = fail_reasons.get(reason, 0) + 1
 
         # 每处理一条就推送最新状态，让 UI 实时显示
-        progress_msg = f"批量重试 {i+1}/{len(failed_indices)}: {'OK' if ok else 'FAIL' + (' - ' + reason if reason else '')}"
+        progress_msg = f"批量重试 {i+1}/{len(failed_indices)}: {label} " \
+                       f"{'成功' if ok else '失败' + ('（' + reason + '）' if reason else '')}"
         task_manager.update(task_id, std_items=items,
                           stats=compute_download_stats(items),
-                          message=progress_msg)
+                          message=progress_msg, persist_std_items=False)
         await asyncio.sleep(get_delay())
 
     # 汇总消息：失败原因按计数降序展示前 3 个
@@ -504,7 +562,7 @@ async def retry_all_failed(task_id: str):
 
     task_manager.update(task_id, std_items=items,
                       stats=compute_download_stats(items),
-                      message=summary_msg)
+                      message=summary_msg, currentItem='')
     _log.info(f"批量重试完成: {ok_count}/{len(failed_indices)} 成功, 失败原因: {fail_reasons}")
     return {"success": True, "retried": len(failed_indices),
             "succeeded": ok_count, "failed": fail_count,

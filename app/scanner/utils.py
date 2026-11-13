@@ -50,6 +50,8 @@ def compute_download_stats(standards):
         st = s.get('dlStatus') or ''
         if not st:
             pending += 1
+        elif st == 'downloading':
+            pending += 1
         elif st == 'downloaded':
             direct_dl += 1
         elif st == 'previewed':
@@ -86,6 +88,36 @@ def compute_download_stats(standards):
         'copyright': copyright_restricted,
         'pending': pending,
     }
+
+
+_DL_STATUS_LABELS = {
+    'downloaded': '已下载',
+    'previewed': '预览合成',
+    'skipped_existing': '本地已存在',
+    'skipped_obsolete': '已废止',
+    'copyright': '版权保护',
+    'preview_disabled': '预览未启用',
+    'no_fulltext': '无全文',
+    'no_hcno': '未发布',
+    'downloading': '下载中',
+    'failed': '下载失败',
+    'failed_captcha': '验证码失败',
+    'failed_preview': '预览失败',
+    'failed_hcno': 'hcno 异常',
+    'failed_no_hcno': '未发布',
+    'failed_no_pk': '无标识',
+}
+
+
+def dl_status_label(status):
+    """把内部 dlStatus 转成面向用户的中文文案。"""
+    if not status:
+        return '待下载'
+    if status in _DL_STATUS_LABELS:
+        return _DL_STATUS_LABELS[status]
+    if status.startswith('failed_') or status.startswith('error:'):
+        return '下载异常'
+    return status
 
 
 def format_download_summary(stats, prefix='处理完成'):

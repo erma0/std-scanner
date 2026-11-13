@@ -2465,7 +2465,8 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
             document.getElementById('search-select-all').addEventListener('change', (e) => {
                 const checked = e.target.checked;
-                document.querySelectorAll('.search-item-checkbox').forEach(cb => {
+                // 跳过禁用项（不可下载 / 本地已有），避免"全选"把无效项也选中
+                document.querySelectorAll('.search-item-checkbox:not(:disabled)').forEach(cb => {
                     cb.checked = checked;
                 });
                 updateSearchSelectedCount();
@@ -2482,9 +2483,10 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 downloadSearchItems(selected, false);
             };
             const onDownloadAll = () => {
-                const downloadable = searchResults.filter(s => s.downloadable);
+                // 本地已有 / 不可下载的标准不在批量下载范围内
+                const downloadable = searchResults.filter(s => s.downloadable && !s.localExists);
                 if (downloadable.length === 0) {
-                    showToast('没有可下载的标准', 'warning');
+                    showToast(searchResults.some(s => s.localExists) ? '全部标准本地已有，无需下载' : '没有可下载的标准', 'warning');
                     return;
                 }
                 // 全部下载默认跳过废止标准，避免批量拉取历史版本
@@ -2586,7 +2588,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             }
 
             panel.classList.remove('hidden');
-            countEl.textContent = `共 ${total} 条，显示 ${searchResults.length} 条`;
+            const localCount = searchResults.filter(s => s.localExists).length;
+            countEl.textContent = `共 ${total} 条，显示 ${searchResults.length} 条` +
+                (localCount ? `（本地已有 ${localCount} 条）` : '');
 
             list.innerHTML = searchResults.map((item, idx) => {
                 const statusColors = {
@@ -2596,18 +2600,21 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     '修订': 'bg-yellow-50 text-yellow-700',
                 };
                 const statusClass = statusColors[item.status] || 'bg-gray-50 text-gray-600';
+                const selectable = item.downloadable && !item.localExists;
 
                 return `
                     <div class="px-6 py-3 hover:bg-gray-50 transition-colors ${!item.downloadable ? 'opacity-60' : ''}">
                         <div class="flex items-start">
-                            <input type="checkbox" class="search-item-checkbox mt-1 w-3.5 h-3.5 text-blue-500 rounded mr-3 flex-shrink-0" data-index="${idx}" ${!item.downloadable ? 'disabled' : ''} onchange="updateSearchSelectedCount()">
+                            <input type="checkbox" class="search-item-checkbox mt-1 w-3.5 h-3.5 text-blue-500 rounded mr-3 flex-shrink-0" data-index="${idx}" ${selectable ? '' : 'disabled'} onchange="updateSearchSelectedCount()">
                             <div class="flex-1 min-w-0">
                                 <div class="flex items-center flex-wrap gap-1.5">
                                     <span class="font-medium text-gray-800 text-sm">${item.code} ${item.name}</span>
                                     <span class="px-1.5 py-0.5 rounded text-[10px] font-medium ${statusClass}">${item.status || '未知'}</span>
-                                    ${item.downloadable
-                                        ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-cyan-50 text-cyan-700" title="${item.download_msg || ''}"><i class="fa fa-download mr-0.5"></i>支持下载</span>`
-                                        : `<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500"><i class="fa fa-lock mr-0.5"></i>${item.download_msg || '不可下载'}</span>`
+                                    ${item.localExists
+                                        ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-700" title="本地已有该标准文件，无需重复下载"><i class="fa fa-check-circle mr-0.5"></i>本地已有</span>`
+                                        : item.downloadable
+                                            ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-cyan-50 text-cyan-700" title="${item.download_msg || ''}"><i class="fa fa-download mr-0.5"></i>支持下载</span>`
+                                            : `<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500"><i class="fa fa-lock mr-0.5"></i>${item.download_msg || '不可下载'}</span>`
                                     }
                                 </div>
                                 ${item.publishDate ? `<p class="text-[10px] text-gray-400 mt-1">发布: ${item.publishDate}${item.actDate ? ' · 实施: ' + item.actDate : ''}</p>` : ''}
@@ -2676,7 +2683,19 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
         let searchDlTaskId = null;
         let searchDlPollTimer = null;
 
+        let searchDlStarting = false;
+
         async function downloadSearchItems(items, skipObsolete = false) {
+            if (searchDlStarting) return;
+            if (!items || items.length === 0) {
+                showToast('没有可下载的标准', 'warning');
+                return;
+            }
+            searchDlStarting = true;
+            const dlBtn = document.getElementById('search-download-all-btn-top');
+            const dlSelBtn = document.getElementById('search-download-selected-btn-top');
+            if (dlBtn) dlBtn.disabled = true;
+            if (dlSelBtn) dlSelBtn.disabled = true;
             try {
                 const resp = await fetch(`${API_BASE}/search/download`, {
                     method: 'POST',
@@ -2685,19 +2704,30 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 });
                 const result = await resp.json();
 
-                if (result.success) {
-                    searchDlTaskId = result.task_id;
-                    if (result.skipped_obsolete) {
-                        showToast(`已跳过 ${result.skipped_obsolete} 个已废止标准`, 'warning');
-                    }
-                    // 总计只统计实际会尝试下载的标准
-                    showSearchDownloadProgress(items.length - (result.skipped_obsolete || 0));
-                    pollSearchDownloadProgress();
-                } else {
+                if (!result.success) {
                     showToast(result.detail || '下载失败', 'error');
+                    return;
                 }
+                if (!result.task_id || !result.count) {
+                    // 后端已完成去重：全部本地已有或已废止
+                    showToast(result.message || '没有需要下载的标准（本地已有或已废止）', 'warning');
+                    return;
+                }
+                searchDlTaskId = result.task_id;
+                const skipParts = [];
+                if (result.skipped_existing) skipParts.push(`本地已有 ${result.skipped_existing}`);
+                if (result.skipped_obsolete) skipParts.push(`已废止 ${result.skipped_obsolete}`);
+                if (skipParts.length) {
+                    showToast(`已跳过：${skipParts.join('，')}`, 'warning');
+                }
+                showSearchDownloadProgress(result.count);
+                pollSearchDownloadProgress();
             } catch (e) {
                 showToast('下载失败: ' + (e.message || String(e)), 'error');
+            } finally {
+                searchDlStarting = false;
+                if (dlBtn) dlBtn.disabled = false;
+                updateSearchSelectedCount();
             }
         }
 
@@ -3543,8 +3573,12 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             const statusLabels = { 'running': '运行中', 'completed': '已完成', 'failed': '失败', 'pending': '等待中', 'paused': '已暂停', 'interrupted': '已中断' };
             const esc = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
             // 搜索结果任务：用「下载全部」替代「重试」（重试会重新搜索，语义不符）
+            // 暂停中也允许下载：点击后结束剩余搜索，直接下载已匹配的结果
             const isSearchTask = task.std_type === 'search' || task.std_type === 'search_batch';
-            const canDownloadAll = isSearchTask && ['completed', 'failed', 'interrupted'].includes(task.status);
+            const dlAllStatuses = ['completed', 'failed', 'interrupted', 'paused'];
+            const canDownloadAll = isSearchTask && dlAllStatuses.includes(task.status);
+            const dlAllText = task.status === 'paused' ? '下载已有结果' : '下载全部';
+            const dlAllTitle = task.status === 'paused' ? '结束搜索并下载已匹配的结果' : '一键下载全部搜索结果';
 
             const statusClass = task.status === 'running' ? 'bg-yellow-500 text-white'
                 : task.status === 'completed' ? 'bg-green-500 text-white'
@@ -3598,7 +3632,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                     <span class="text-gray-300">·</span>
                                     <span>预览 <b class="task-stat-previewed text-gray-500" data-stat="previewed">${stats.previewed || 0}</b></span>
                                     <span class="text-gray-300">·</span>
-                                    <span>重复 <b class="task-stat-skipped-existing text-gray-500" data-stat="skipped_existing">${stats.skipped_existing || 0}</b></span>
+                                    <span>已存在 <b class="task-stat-skipped-existing text-gray-500" data-stat="skipped_existing">${stats.skipped_existing || 0}</b></span>
                                     <span class="text-gray-300">·</span>
                                     <span>废止 <b class="task-stat-skipped-obsolete text-gray-500" data-stat="skipped_obsolete">${stats.skipped_obsolete || 0}</b></span>
                                     <span class="text-gray-300">·</span>
@@ -3626,10 +3660,10 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             <div class="task-actions flex items-center space-x-3" data-status="${task.status}" onclick="event.stopPropagation()">
                                 <button class="task-btn-pause text-yellow-500 hover:text-yellow-700 transition-colors" style="${task.status === 'running' ? '' : 'display:none'}" onclick="pauseTask('${task.task_id}')" title="暂停任务"><i class="fa fa-pause mr-1"></i>暂停</button>
                                 <button class="task-btn-resume text-green-500 hover:text-green-700 transition-colors" style="${task.status === 'paused' ? '' : 'display:none'}" onclick="resumeTask('${task.task_id}')" title="继续任务"><i class="fa fa-play mr-1"></i>继续</button>
-                                <button class="task-btn-download-all text-emerald-600 hover:text-emerald-800 transition-colors" style="${canDownloadAll ? '' : 'display:none'}" onclick="downloadAllTaskItems('${task.task_id}')" title="一键下载全部搜索结果"><i class="fa fa-cloud-download mr-1"></i>下载全部</button>
+                                <button class="task-btn-download-all text-emerald-600 hover:text-emerald-800 transition-colors" style="${canDownloadAll ? '' : 'display:none'}" onclick="downloadAllTaskItems('${task.task_id}')" title="${dlAllTitle}"><i class="fa fa-cloud-download mr-1"></i>${dlAllText}</button>
                                 <button class="task-btn-retry text-cyan-500 hover:text-cyan-700 transition-colors" style="${(task.status === 'failed' || task.status === 'completed' || task.status === 'interrupted') && !isSearchTask ? '' : 'display:none'}" onclick="retryTask('${task.task_id}')" title="重试任务"><i class="fa fa-refresh mr-1"></i>重试</button>
                                 <button class="task-btn-priority text-amber-500 hover:text-amber-700 transition-colors" style="${task.status === 'pending' ? '' : 'display:none'}" onclick="bumpTaskPriority('${task.task_id}')" title="置顶任务"><i class="fa fa-arrow-up mr-1"></i>置顶</button>
-                                <button class="task-btn-folder text-blue-400 hover:text-blue-600 transition-colors" style="${task.status === 'completed' ? '' : 'display:none'}" onclick="openOutputDir()"><i class="fa fa-folder-open mr-1"></i>文件夹</button>
+                                <button class="task-btn-folder text-blue-400 hover:text-blue-600 transition-colors" style="${task.status === 'completed' || (stats.success || 0) > 0 ? '' : 'display:none'}" onclick="openOutputDir()"><i class="fa fa-folder-open mr-1"></i>文件夹</button>
                                 <button class="task-btn-delete text-red-400 hover:text-red-600 transition-colors" onclick="deleteTask('${task.task_id}')" title="删除任务"><i class="fa fa-trash mr-1"></i></button>
                             </div>
                         </div>
@@ -3651,7 +3685,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
             // 如果卡片初始化时 stats 全为 0（stats 行未渲染），现在 stats 有数据了，
             // 需要重建卡片 HTML 以显示 stats 行（否则后续 querySelector 找不到元素）
-            // 同样处理右侧子统计行（直下/预览/重复/不可下）：初始全为 0 时不渲染，
+            // 同样处理右侧子统计行（直下/预览/已存在/不可下）：初始全为 0 时不渲染，
             // 后续下载阶段有数据时需重建，否则右行 DOM 缺失导致数据不更新
             const hasStatsRow = !!card.querySelector('.task-stat-scanned');
             const hasStatsNow = !!(stats.scanned || stats.success || stats.failed || stats.skipped);
@@ -3787,12 +3821,22 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             };
             const isSearchTask = task.std_type === 'search' || task.std_type === 'search_batch';
             const ended = task.status === 'failed' || task.status === 'completed' || task.status === 'interrupted';
+            const canDownloadAll = isSearchTask && ['completed', 'failed', 'interrupted', 'paused'].includes(task.status);
             toggle('task-btn-pause', task.status === 'running');
             toggle('task-btn-resume', task.status === 'paused');
-            toggle('task-btn-download-all', isSearchTask && ended);
+            toggle('task-btn-download-all', canDownloadAll);
+            const dlAllBtn = actions.querySelector('.task-btn-download-all');
+            if (dlAllBtn) {
+                const text = task.status === 'paused' ? '下载已有结果' : '下载全部';
+                const title = task.status === 'paused' ? '结束搜索并下载已匹配的结果' : '一键下载全部搜索结果';
+                if (dlAllBtn.textContent.trim() !== text) {
+                    dlAllBtn.innerHTML = `<i class="fa fa-cloud-download mr-1"></i>${text}`;
+                }
+                dlAllBtn.title = title;
+            }
             toggle('task-btn-retry', ended && !isSearchTask);
             toggle('task-btn-priority', task.status === 'pending');
-            toggle('task-btn-folder', task.status === 'completed');
+            toggle('task-btn-folder', task.status === 'completed' || ((task.stats || {}).success || 0) > 0);
         }
 
         async function loadTasks() {
@@ -4124,34 +4168,71 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             }
         }
 
+        let _retryingItems = {};
+
         async function retrySingleItem(taskId, itemIndex) {
+            const key = taskId + ':' + itemIndex;
+            if (_retryingItems[key]) return;
+            _retryingItems[key] = true;
+
+            const cached = detailCache[taskId];
+            const item = cached ? (cached.std_items || [])[itemIndex] : null;
+            const prevStatus = item ? item.dlStatus : null;
+            const prevReason = item ? item.failReason : undefined;
+            const detailEl = document.getElementById('detail-' + taskId);
+            const row = detailEl ? detailEl.querySelector(`tr[data-idx="${itemIndex}"]`) : null;
+            const cell = row ? row.querySelector('.dl-status-cell') : null;
+
+            // 立即显示"下载中"，避免点击后长时间无反馈（下载完成前不再允许重复点击）
+            if (item) item.dlStatus = 'downloading';
+            if (cell) cell.innerHTML = _dlCellHtml(item || { dlStatus: 'downloading' }, taskId, itemIndex);
+
             try {
                 const resp = await fetch(`${API_BASE}/task/${taskId}/retry-item/${itemIndex}`, { method: 'POST' });
                 const data = await resp.json();
                 if (data.success) {
-                    // data.ok=true 表示下载成功；status='skipped_existing' 也算成功
-                    const toastType = data.ok ? 'success' : 'warning';
-                    showToast(data.message || '操作完成', toastType);
-                    // 清除详情缓存，下次展开时重新拉取
-                    delete detailCache[taskId];
+                    if (item) {
+                        item.dlStatus = data.status;
+                        if (data.reason) item.failReason = data.reason;
+                        else delete item.failReason;
+                    }
+                    if (cell) {
+                        cell.innerHTML = _dlCellHtml(item || { dlStatus: data.status, failReason: data.reason }, taskId, itemIndex);
+                    }
+                    showToast(data.message || '操作完成', data.ok ? 'success' : 'warning');
                     delete detailLastFetch[taskId];
-                    // SSE 会推送 task_update 更新卡片 stats
                 } else {
+                    if (item) { item.dlStatus = prevStatus; if (prevReason !== undefined) item.failReason = prevReason; }
+                    if (cell) cell.innerHTML = _dlCellHtml(item || {}, taskId, itemIndex);
                     showToast(data.detail || '操作失败', 'error');
                 }
             } catch (e) {
-                showToast('失败: ' + (e.message || String(e)), 'error');
+                if (item) { item.dlStatus = prevStatus; if (prevReason !== undefined) item.failReason = prevReason; }
+                if (cell) cell.innerHTML = _dlCellHtml(item || {}, taskId, itemIndex);
+                showToast('下载失败: ' + (e.message || String(e)), 'error');
+            } finally {
+                delete _retryingItems[key];
             }
         }
 
+        let _dlAllPending = {};
+
         async function downloadAllTaskItems(taskId) {
+            if (_dlAllPending[taskId]) return;
+            _dlAllPending[taskId] = true;
             try {
                 const resp = await fetch(`${API_BASE}/task/${taskId}/download-all`, { method: 'POST' });
                 const data = await resp.json();
                 if (data.success) {
                     if (data.count > 0) {
-                        const skipNote = data.skipped_obsolete ? `，跳过废止 ${data.skipped_obsolete} 个` : '';
-                        showToast(`已开始下载 ${data.count} 个标准${skipNote}`, 'success');
+                        const skipParts = [];
+                        if (data.skipped_existing) skipParts.push(`本地已有 ${data.skipped_existing}`);
+                        if (data.skipped_obsolete) skipParts.push(`已废止 ${data.skipped_obsolete}`);
+                        const skipNote = skipParts.length ? `（跳过：${skipParts.join('，')}）` : '';
+                        const msg = data.resumed
+                            ? `已结束搜索，开始下载 ${data.count} 个标准${skipNote}`
+                            : `已开始下载 ${data.count} 个标准${skipNote}`;
+                        showToast(msg, 'success');
                     } else {
                         showToast(data.message || '没有需要下载的标准', 'warning');
                     }
@@ -4161,12 +4242,24 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 }
             } catch (e) {
                 showToast('下载失败: ' + (e.message || String(e)), 'error');
+            } finally {
+                delete _dlAllPending[taskId];
             }
         }
 
+        let _retryAllPending = {};
+
         async function retryAllFailed(taskId) {
+            if (_retryAllPending[taskId]) return;
+            _retryAllPending[taskId] = true;
+            const detailEl = document.getElementById('detail-' + taskId);
+            const btn = detailEl ? detailEl.querySelector('.detail-retry-failed-btn') : null;
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa fa-spinner fa-spin mr-1"></i>重试中...';
+            }
             try {
-                showToast('正在批量重试，请稍候...', 'info');
+                showToast('正在批量重试，进度见任务卡片', 'info');
                 const resp = await fetch(`${API_BASE}/task/${taskId}/retry-failed`, { method: 'POST' });
                 const data = await resp.json();
                 if (data.success) {
@@ -4189,6 +4282,13 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 }
             } catch (e) {
                 showToast('批量重试失败: ' + (e.message || String(e)), 'error');
+            } finally {
+                delete _retryAllPending[taskId];
+                if (btn) {
+                    btn.disabled = false;
+                    const count = (detailCache[taskId]?.stats?.failed) || 0;
+                    btn.innerHTML = `<i class="fa fa-refresh mr-1"></i>重试全部失败 (${count}条)`;
+                }
             }
         }
 
@@ -4241,6 +4341,41 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             return { text: dlStatus, cls: 'text-gray-300', icon: 'fa-question' };
         }
 
+        function _escapeAttr(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+                .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        // 下载状态单元格（徽标 + 操作按钮），渲染与增量更新共用，避免三处逻辑漂移
+        function _dlCellHtml(s, taskId, globalIdx) {
+            s = s || {};
+            const dlStatus = s.dlStatus || '';
+            const isFailed = dlStatus === 'failed' || dlStatus.startsWith('failed_') || dlStatus.startsWith('error:');
+            const isPending = !dlStatus;
+            const isDownloading = dlStatus === 'downloading';
+            const isObsoleteSkipped = dlStatus === 'skipped_obsolete';
+            const isExisting = dlStatus === 'skipped_existing';
+            const lbl = getDlStatusLabel(dlStatus);
+            let dlTooltip = lbl.text;
+            if (s.failReason) {
+                dlTooltip = `${lbl.text}: ${s.failReason}`;
+            } else if (isFailed) {
+                dlTooltip = `${lbl.text} (${dlStatus})`;
+            }
+            const badge = `<span class="${lbl.cls}" title="${_escapeAttr(dlTooltip)}"><i class="fa ${lbl.icon}"></i><span class="ml-0.5 text-[9px]">${lbl.text}</span></span>`;
+
+            const showRetry = isFailed || isPending || isObsoleteSkipped || isExisting;
+            const btnTitle = isObsoleteSkipped ? '仍要下载此废止标准'
+                : isExisting ? '重新下载（本地已有）'
+                : isFailed ? '重试下载' : '下载';
+            const btnIcon = (isFailed || isExisting) ? 'refresh' : 'download';
+            const retryBtn = (showRetry && !isDownloading)
+                ? `<button class="ml-1 text-[10px] text-cyan-500 hover:text-cyan-700" onclick="event.stopPropagation();retrySingleItem('${taskId}', ${globalIdx})" title="${btnTitle}"><i class="fa fa-${btnIcon}"></i></button>`
+                : '';
+            return badge + retryBtn;
+        }
+
         function getStdUrl(s, task) {
             const t = task && task.std_type;
             // 搜索结果自带详情页链接，直接使用
@@ -4291,20 +4426,6 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     const state = s.state || s.status || '';
                     const issueDate = s.issueDate || s.publishDate || '';
                     const actDate = s.actDate || '';
-                    const isFailed = s.dlStatus === 'failed' || (s.dlStatus && (s.dlStatus.startsWith('failed_') || s.dlStatus.startsWith('error:')));
-                    const isPending = !s.dlStatus;
-                    const isObsoleteSkipped = s.dlStatus === 'skipped_obsolete';
-                    const lbl = getDlStatusLabel(s.dlStatus);
-                    // 失败时优先展示 failReason（具体原因），其次展示状态码
-                    let dlTooltip = lbl.text;
-                    if (s.failReason) {
-                        dlTooltip = `${lbl.text}: ${s.failReason}`;
-                    } else if (s.dlStatus && (s.dlStatus.startsWith('failed') || s.dlStatus.startsWith('error'))) {
-                        dlTooltip = `${lbl.text} (${s.dlStatus})`;
-                    }
-                    const dlBadge = `<span class="${lbl.cls}" title="${dlTooltip}"><i class="fa ${lbl.icon}"></i><span class="ml-0.5 text-[9px]">${lbl.text}</span></span>`;
-
-                    const retryBtn = (isFailed || isPending || isObsoleteSkipped) ? `<button class="ml-1 text-[10px] text-cyan-500 hover:text-cyan-700" onclick="event.stopPropagation();retrySingleItem('${task.task_id}', ${globalIdx})" title="${isObsoleteSkipped ? '仍要下载此废止标准' : (isFailed ? '重试下载' : '下载')}"><i class="fa fa-${isFailed ? 'refresh' : 'download'}"></i></button>` : '';
 
                     const url = getStdUrl(s, task);
                     const cellText = (val) => val || '-';
@@ -4312,14 +4433,14 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                         ? `<a href="${url}" target="_blank" class="${cls} hover:text-blue-600 hover:underline" onclick="event.stopPropagation()">${cellText(text)}</a>`
                         : `<span class="${cls}">${cellText(text)}</span>`;
 
-                    return `<tr class="border-b border-gray-50 hover:bg-gray-50/50">
+                    return `<tr class="border-b border-gray-50 hover:bg-gray-50/50" data-idx="${globalIdx}">
                         <td class="py-1 px-1.5 whitespace-nowrap">${linkTag(code, 'inline-block px-1.5 py-0.5 rounded text-[10px] font-mono text-gray-500 bg-gray-100')}</td>
                         <td class="py-1 px-1.5 text-[10px] text-gray-700">${linkTag(name, 'text-[10px] text-gray-700')}</td>
                         <td class="py-1 px-1.5 text-[10px] text-gray-400 whitespace-nowrap">${nature || '-'}</td>
                         <td class="py-1 px-1.5 text-[10px] whitespace-nowrap">${state === '现行' ? '<span class="inline-block px-1 rounded text-[10px] text-green-700 bg-green-50">现行</span>' : state === '废止' ? '<span class="inline-block px-1 rounded text-[10px] text-red-600 bg-red-50">废止</span>' : state || '-'}</td>
                         <td class="py-1 px-1.5 text-[10px] text-gray-400 whitespace-nowrap">${issueDate || '-'}</td>
                         <td class="py-1 px-1.5 text-[10px] text-gray-400 whitespace-nowrap">${actDate || '-'}</td>
-                        <td class="py-1 px-1.5 text-[10px] text-center whitespace-nowrap dl-status-cell">${dlBadge}${retryBtn}</td>
+                        <td class="py-1 px-1.5 text-[10px] text-center whitespace-nowrap dl-status-cell">${_dlCellHtml(s, task.task_id, globalIdx)}</td>
                     </tr>`;
                 }).join('');
                 // 分页控件（表格上下各一份）
@@ -4569,19 +4690,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     if (!row) continue;
                     const dlCell = row.querySelector('.dl-status-cell');
                     if (!dlCell) continue;
-                    const isFailed = s.dlStatus === 'failed' || (s.dlStatus && (s.dlStatus.startsWith('failed_') || s.dlStatus.startsWith('error:')));
-                    const isObsoleteSkipped = s.dlStatus === 'skipped_obsolete';
-                    const lbl = getDlStatusLabel(s.dlStatus);
-                    // 失败时优先展示 failReason（具体原因），与初次渲染逻辑保持一致
-                    let dlTooltip = lbl.text;
-                    if (s.failReason) {
-                        dlTooltip = `${lbl.text}: ${s.failReason}`;
-                    } else if (s.dlStatus && (s.dlStatus.startsWith('failed') || s.dlStatus.startsWith('error'))) {
-                        dlTooltip = `${lbl.text} (${s.dlStatus})`;
-                    }
-                    const newIcon = `<span class="${lbl.cls}" title="${dlTooltip}"><i class="fa ${lbl.icon}"></i><span class="ml-0.5 text-[9px]">${lbl.text}</span></span>`;
-                    const retryBtnHtml = (isFailed || !s.dlStatus || isObsoleteSkipped) ? `<button class="ml-1 text-[10px] text-cyan-500 hover:text-cyan-700" onclick="event.stopPropagation();retrySingleItem('${task.task_id}', ${globalIdx})" title="${isObsoleteSkipped ? '仍要下载此废止标准' : (isFailed ? '重试下载' : '下载')}"><i class="fa fa-${isFailed ? 'refresh' : 'download'}"></i></button>` : '';
-                    const newContent = newIcon + retryBtnHtml;
+                    const newContent = _dlCellHtml(s, tid, globalIdx);
                     if (dlCell.innerHTML !== newContent) dlCell.innerHTML = newContent;
                 }
             } else if (items.length > 0) {

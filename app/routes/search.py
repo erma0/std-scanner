@@ -32,6 +32,12 @@ async def search_query_api(request: Request):
     if not query:
         raise HTTPException(status_code=400, detail="搜索关键词不能为空")
 
+    # 搜索阶段先去重：本地已有文件直接标记，避免用户误以为还要重新下载
+    from app.dedup import get_existing_files
+    from app.scanner.utils import make_filename
+    loop = asyncio.get_running_loop()
+    existing = await loop.run_in_executor(None, get_existing_files)
+
     # 团体标准走独立 API 搜索（ttbz.org.cn，无 WAF，httpx 直接调用）
     if std_type == '团体标准':
         try:
@@ -50,13 +56,13 @@ async def search_query_api(request: Request):
             "actDate": '',
             "downloadable": not s.get('sellable', False),
             "download_msg": '付费标准' if s.get('sellable') else '支持下载',
+            "localExists": make_filename(s.get('code', ''), s.get('name', '')) in existing,
             "detailUrl": f"https://www.ttbz.org.cn/StandardManage/Detail/{s.get('detail_id', '')}/",
             "group_name": s.get('group_name', ''),
         } for s in standards]
         return {"success": True, "total": len(results), "results": results}
 
     try:
-        loop = asyncio.get_running_loop()
         standards, total = await loop.run_in_executor(
             None, fetch_stdpage_search, query, 1, std_type)
     except Exception as e:
@@ -77,6 +83,7 @@ async def search_query_api(request: Request):
             "actDate": s.get('actDate', ''),
             "downloadable": can_dl,
             "download_msg": dl_msg,
+            "localExists": make_filename(s.get('code', ''), s.get('name', '')) in existing,
             "detailUrl": f"{DETAIL_URL}?id={s.get('tid', '')}",
         })
 
@@ -144,6 +151,7 @@ async def search_batch_api(request: Request):
             all_items, obsolete_skipped = await _batch_search_dedup(
                 task_id, queries, std_type, per_query_max, exact_match, skip_obsolete)
             obsolete_note = f"（搜索阶段跳过废止 {obsolete_skipped} 条）" if obsolete_skipped else ''
+            download_only = bool((task_manager.get(task_id) or {}).get('_download_only'))
 
             # 暂停时等待用户继续，避免直接进入下载阶段或提前标记完成
             if not await _wait_if_running(task_id):
@@ -155,10 +163,21 @@ async def search_batch_api(request: Request):
                                  end_time=time.time())
                 return
 
-            _log.info(f"任务 {task_id}: 去重后 {len(all_items)} 个标准，auto_download={auto_download}")
-            if auto_download:
+            stats = compute_download_stats(all_items)
+            pending = stats.get('pending', 0)
+            existing_note = f"，本地已有 {stats['skipped_existing']} 条" if stats.get('skipped_existing') else ''
+            _log.info(f"任务 {task_id}: 去重后 {len(all_items)} 个标准，待下载 {pending}，"
+                      f"auto_download={auto_download} download_only={download_only}")
+
+            if auto_download or download_only:
+                if pending == 0:
+                    msg = f"搜索完成，{len(all_items)} 条均无需下载（本地已有或已废止）{obsolete_note}"
+                    update_task_status(task_id, progress=100, status="completed",
+                                     message=msg, end_time=time.time())
+                    return
+                prefix = '已结束搜索，开始下载' if download_only else '搜索完成，开始下载'
                 update_task_status(task_id, progress=50,
-                                 message=f"搜索完成（{len(all_items)} 个），开始下载...")
+                                 message=f"{prefix} {pending} 个标准{existing_note}...")
                 await _download_selected_items(task_id, all_items, progress_base=50)
                 if not await _wait_if_running(task_id):
                     return
@@ -168,9 +187,9 @@ async def search_batch_api(request: Request):
                                  end_time=time.time())
             else:
                 # 仅搜索：把结果存入 std_items 供前端查看
+                msg = f"搜索完成，共 {len(all_items)} 条，待下载 {pending}{existing_note}" + obsolete_note
                 task_manager.update(task_id, std_items=all_items, progress=100,
-                                  status="completed",
-                                  message=f"搜索完成，共 {len(all_items)} 个可下载标准" + obsolete_note,
+                                  status="completed", message=msg,
                                   end_time=time.time())
             _log.info(f"任务 {task_id}: 完成")
         except Exception as e:
@@ -193,6 +212,12 @@ async def _wait_if_running(task_id):
         if status != 'paused':
             return False
         await asyncio.sleep(1)
+
+
+def _is_download_only(task_id):
+    """批量搜索任务是否被要求"结束搜索、直接下载已有结果"。"""
+    task = task_manager.get(task_id)
+    return bool(task and task.get('_download_only'))
 
 
 async def _sleep_with_pause(task_id, seconds):
@@ -225,7 +250,8 @@ async def _batch_search_dedup(task_id, queries, std_type, per_query_max,
     """
     from app.scanner import fetch_stdpage_search, check_downloadable, search_tt_standards
     from app.scanner.search import filter_standard_results, parse_standard_code
-    from app.scanner.utils import compute_download_stats
+    from app.scanner.utils import compute_download_stats, make_filename
+    from app.dedup import get_existing_files
     from config.settings import DETAIL_URL, get_delay
 
     seen = set()
@@ -234,11 +260,17 @@ async def _batch_search_dedup(task_id, queries, std_type, per_query_max,
     total = len(queries)
     loop = asyncio.get_running_loop()
     is_tt = (std_type == '团体标准')
+    # 搜索阶段先做本地去重：已有文件的条目直接标记，后续不再尝试下载
+    existing = await loop.run_in_executor(None, get_existing_files)
 
     for i, q in enumerate(queries):
         # 暂停时挂起；任务被删除/结束时中止搜索
         if not await _wait_if_running(task_id):
             _log.info(f"任务 {task_id}: 搜索被中止")
+            break
+        # 用户点击"下载已有结果"时立即结束剩余搜索
+        if _is_download_only(task_id):
+            _log.info(f"任务 {task_id}: 收到下载指令，结束剩余 {total - i} 个关键词搜索")
             break
         update_task_status(task_id,
                         progress=int(50 * i / total) if total else 50,
@@ -290,6 +322,8 @@ async def _batch_search_dedup(task_id, queries, std_type, per_query_max,
             # 暂停时立即挂起；任务删除/结束时停止批量搜索
             if not await _wait_if_running(task_id):
                 return all_items, obsolete_skipped
+            if _is_download_only(task_id):
+                return all_items, obsolete_skipped
             if is_tt:
                 # 团体标准结果格式
                 tid = 'BV_TT'
@@ -304,7 +338,7 @@ async def _batch_search_dedup(task_id, queries, std_type, per_query_max,
                 # 付费标准跳过
                 if s.get('sellable'):
                     continue
-                all_items.append({
+                item = {
                     "code": code,
                     "name": name,
                     "tid": tid,
@@ -316,7 +350,10 @@ async def _batch_search_dedup(task_id, queries, std_type, per_query_max,
                     "download_msg": '支持下载',
                     "detailUrl": f"https://www.ttbz.org.cn/StandardManage/Detail/{detail_id}/",
                     "query": q,
-                })
+                }
+                if make_filename(code, name) in existing:
+                    item['dlStatus'] = 'skipped_existing'
+                all_items.append(item)
                 added += 1
                 continue
 
@@ -333,7 +370,7 @@ async def _batch_search_dedup(task_id, queries, std_type, per_query_max,
             can_dl, dl_msg = await loop.run_in_executor(None, check_downloadable, tid)
             if not can_dl:
                 continue
-            all_items.append({
+            item = {
                 "code": code,
                 "name": name,
                 "tid": tid,
@@ -345,7 +382,10 @@ async def _batch_search_dedup(task_id, queries, std_type, per_query_max,
                 "download_msg": dl_msg,
                 "detailUrl": f"{DETAIL_URL}?id={tid}",
                 "query": q,  # 记录命中的关键词，便于审计
-            })
+            }
+            if make_filename(code, name) in existing:
+                item['dlStatus'] = 'skipped_existing'
+            all_items.append(item)
             added += 1
 
         _log.info(f"  [{i+1}/{total}] '{q[:30]}' +{added} (累计 {len(all_items)})")
@@ -363,7 +403,9 @@ async def _batch_search_dedup(task_id, queries, std_type, per_query_max,
 
 @router.post("/api/search/download")
 async def search_download_selected_api(request: Request):
-    from app.scanner.search_download import FINAL_STATUSES, mark_obsolete_skipped
+    from app.scanner.search_download import (
+        FINAL_STATUSES, mark_obsolete_skipped, mark_existing_skipped,
+    )
     from app.scanner.utils import compute_download_stats, format_download_summary
 
     body = await request.json()
@@ -375,14 +417,28 @@ async def search_download_selected_api(request: Request):
         raise HTTPException(status_code=400, detail="未选择任何标准")
 
     skipped_obsolete = mark_obsolete_skipped(items) if skip_obsolete else 0
+    loop = asyncio.get_running_loop()
+    skipped_existing = await loop.run_in_executor(None, mark_existing_skipped, items)
     pending_count = sum(1 for it in items if it.get('dlStatus') not in FINAL_STATUSES)
-    task_id = f"search_{int(time.time())}"
 
+    skip_notes = ''
+    if skipped_obsolete:
+        skip_notes += f"，跳过废止 {skipped_obsolete}"
+    if skipped_existing:
+        skip_notes += f"，本地已有 {skipped_existing}"
+
+    if pending_count == 0:
+        return {"success": True, "task_id": None, "count": 0,
+                "skipped_obsolete": skipped_obsolete,
+                "skipped_existing": skipped_existing,
+                "message": "没有需要下载的标准" + (f"（{skip_notes.lstrip('，')}）" if skip_notes else '')}
+
+    task_id = f"search_{int(time.time())}"
     task_manager.create(task_id, {
         "task_id": task_id,
         "status": "running",
         "progress": 0,
-        "message": f"下载中 {pending_count} 个标准" + (f"（跳过废止 {skipped_obsolete}）" if skipped_obsolete else ''),
+        "message": f"下载中 {pending_count} 个标准{skip_notes}",
         "stats": compute_download_stats(items),
         "start_time": time.time(),
         "std_type": "search",
@@ -391,7 +447,7 @@ async def search_download_selected_api(request: Request):
 
     async def download_task():
         try:
-            _log.info(f"任务 {task_id}: 下载选中标准 {len(items)} 个")
+            _log.info(f"任务 {task_id}: 下载选中标准 {pending_count} 个（共 {len(items)} 条）")
             await _download_selected_items(task_id, items, progress_base=0)
 
             update_task_status(task_id, progress=100, status="completed",
@@ -403,7 +459,8 @@ async def search_download_selected_api(request: Request):
             task_manager.update(task_id, status="failed", message=str(e), end_time=time.time())
 
     _launch_task(download_task(), f"download-{task_id}")
-    return {"success": True, "task_id": task_id, "skipped_obsolete": skipped_obsolete}
+    return {"success": True, "task_id": task_id, "count": pending_count,
+            "skipped_obsolete": skipped_obsolete, "skipped_existing": skipped_existing}
 
 
 async def _download_selected_items(task_id, items, progress_base=0):
@@ -439,16 +496,19 @@ async def _download_selected_items(task_id, items, progress_base=0):
                 _log.info(f"任务 {task_id}: 下载被中止")
                 return
 
-            code = item.get('code', '')
-            name = item.get('name', '')
+            code = item.get('code') or item.get('stdCode', '')
+            name = item.get('name') or item.get('stdName', '')
+            item_label = f"{code} {name}".strip()
+            is_done = item.get('dlStatus') in FINAL_STATUSES
             dl_pct = progress_base + int(span * i / total) if total else 99
             update_task_status(task_id, progress=dl_pct,
-                               message=f"[{i+1}/{total}] 处理: {code} {name}")
+                               message=f"[{i+1}/{total}] {'跳过' if is_done else '处理'}: {item_label}",
+                               currentItem=item_label)
 
-            if item.get('dlStatus') in FINAL_STATUSES:
+            if is_done:
                 continue
 
-            _log.info(f"[{i+1}/{total}] 处理: {code} {name}")
+            _log.info(f"[{i+1}/{total}] 处理: {item_label}")
             # 被暂停/删除时下载会返回 aborted，恢复后重试当前项
             while True:
                 ok, status, reason = await session.download_one(item, abort_check=_should_abort)
@@ -468,7 +528,7 @@ async def _download_selected_items(task_id, items, progress_base=0):
     finally:
         await session.close()
         task_manager.update(task_id, std_items=items,
-                            stats=compute_download_stats(items))
+                            stats=compute_download_stats(items), currentItem='')
         # 下载完成后回写统计（供卡片与通知使用）
         _log.info(f"任务 {task_id}: 下载阶段结束 {compute_download_stats(items)}")
 

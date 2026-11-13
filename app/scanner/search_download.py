@@ -40,6 +40,31 @@ def mark_obsolete_skipped(items):
     return marked
 
 
+def mark_existing_skipped(items, existing=None):
+    """把本地已存在的标准标记为 skipped_existing，返回标记数量。
+
+    在搜索/下载任务创建前就去重，避免把已有文件算进待下载数量，也避免
+    下载阶段逐条重复判断。existing 可传入共享快照以复用去重缓存。
+    """
+    if existing is None:
+        from app.dedup import get_existing_files
+        existing = get_existing_files()
+    from app.scanner.utils import make_filename
+    marked = 0
+    for item in items:
+        if item.get('dlStatus') in FINAL_STATUSES:
+            continue
+        code = item.get('code') or item.get('stdCode') or ''
+        name = item.get('name') or item.get('stdName') or ''
+        if not code and not name:
+            continue
+        if make_filename(code, name) in existing:
+            item['dlStatus'] = 'skipped_existing'
+            item.pop('failReason', None)
+            marked += 1
+    return marked
+
+
 def _resolve_site_pk(code, site_type):
     """按标准号回查 hbba/dbba 标准库，返回可下载的 pk（同步，供 executor 调用）。
 
