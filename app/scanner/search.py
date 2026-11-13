@@ -34,6 +34,12 @@ _STD_CODE_RE = re.compile(
     r'^\s*([A-Za-z]{1,6}\d*)\s*(?:/\s*[A-Za-z]{1,4})?\s*(\d+(?:\.\d+)?)'
     r'\s*(?:[-—–]\s*(\d{2,4}))?\s*(?:[（(].*)?$'
 )
+# 紧凑编号（GB50016-2014 / GB/T50145-2007）：前缀不含数字，与 DB11/T 这类
+# 带地区码的前缀区分，避免把 50016 的前几位吞进 prefix
+_COMPACT_CODE_RE = re.compile(
+    r'^\s*([A-Za-z]{1,6}(?:\s*/\s*[A-Za-z]{1,4})?)\s*(\d+(?:\.\d+)?)'
+    r'\s*(?:[-—–]\s*(\d{2,4}))?\s*(?:[（(].*)?$'
+)
 _STD_NUMBER_RE = re.compile(
     r'^\s*(\d+(?:\.\d+)?)\s*(?:[-—–]\s*(\d{2,4}))?\s*(?:[（(].*)?$'
 )
@@ -44,10 +50,11 @@ def parse_standard_code(text):
     if not text:
         return None
     norm = normalize_code(text.strip())
-    m = _STD_CODE_RE.match(norm)
-    if m:
-        return {'prefix': (m.group(1) or '').upper(), 'part': m.group(2),
-                'year': m.group(3) or ''}
+    for pattern in (_COMPACT_CODE_RE, _STD_CODE_RE):
+        m = pattern.match(norm)
+        if m:
+            return {'prefix': (m.group(1) or '').upper(), 'part': m.group(2),
+                    'year': m.group(3) or ''}
     m = _STD_NUMBER_RE.match(norm)
     if m:
         return {'prefix': '', 'part': m.group(1), 'year': m.group(2) or ''}
@@ -226,6 +233,8 @@ def check_downloadable(tid):
         return True, '地方标准，支持下载'
     elif tid == 'BV_TT':
         return True, '团体标准，支持下载'
+    elif tid == 'BV_MOHURD':
+        return True, '住建部公告附件，支持下载'
     elif tid == 'BV_GB_PLAN':
         return False, '国家标准计划，仅计划信息，无PDF'
     else:

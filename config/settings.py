@@ -103,6 +103,14 @@ MEM_LIST_URL = f"{MEM_BASE}/fw/flfgbz/bz/bzwb/"  # 标准文本列表页（默�
 # 应急管理部规章：列表页通过 iframe 嵌入此 URL（gz11 栏目）
 MEM_GZ_LIST_URL = f"{MEM_BASE}/gk/zfxxgkpt/fdzdgknr/gz11/index.shtml"
 
+# 住房和城乡建设部 — 工程建设标准公告（GB 50xxx–55xxx）
+# 工程建设国家标准不在 std.samr.gov.cn，由住建部在文件库公告中提供全文附件
+MOHURD_BASE = "https://www.mohurd.gov.cn"
+# 站内检索接口（jpaas-jsearch），按紧凑编号如 GB50016-2014 检索
+MOHURD_SEARCH_API = f"{MOHURD_BASE}/api-gateway/jpaas-jsearch-web-server/interface/search/info"
+MOHURD_SEARCH_SERVICE_ID = "e2f3058e2a3b4f8abc93eb76e739e3e7"
+MOHURD_SEARCH_CATE_ID = "6ca0f12c0f0642ab8b1dc17028e12ea1"
+
 # 市场监督管理总局 — 政策法规（https://www.samr.gov.cn/tzsbj/zcfg/）
 # 列表页通过 jpaas-publish-server API 动态渲染（unitbuild.js + page.js）
 # 无 WAF，可用 httpx 直接调用 API 获取列表 HTML

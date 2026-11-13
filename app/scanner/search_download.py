@@ -173,6 +173,26 @@ class SearchDownloadSession:
             _log.info(f"  [SKIP] 已存在: {filename}")
             return self._mark(item, 'skipped_existing')
 
+        # === 工程建设国标：住建部公告附件直链下载（无验证码）===
+        if tid == 'BV_MOHURD':
+            from app.scanner.mohurd_scan import download_mohurd_pdf
+            pdf_url = item.get('pdf_url') or ''
+            if not pdf_url:
+                _log.info(f"  [INFO] 公告未提供附件: {code}")
+                return self._mark(item, 'no_fulltext', '公告未提供附件，需购买正式出版物')
+            _log.info(f"  [DOWN] {code} 下载中（住建部公告）...")
+            ok, reason = await loop.run_in_executor(
+                None, download_mohurd_pdf, pdf_url, filepath,
+                item.get('detailUrl', ''), abort_check)
+            if ok:
+                size_mb = filepath.stat().st_size / 1024 / 1024
+                _log.info(f"  [OK] {filepath} ({size_mb:.1f}MB)")
+                self.existing.add(filename.lower())
+                return self._mark(item, 'downloaded')
+            if reason == 'aborted':
+                return False, 'aborted', '任务已暂停'
+            return self._mark(item, 'failed', reason or '下载失败')
+
         # === 团体标准：httpx 直连 API 下载 ===
         if tid == 'BV_TT':
             from app.scanner.tt_scan import _download_one_standard

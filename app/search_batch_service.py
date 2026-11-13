@@ -80,7 +80,8 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
     """
     from app.scanner import fetch_stdpage_search, check_downloadable, search_tt_standards
     from app.scanner.search import filter_standard_results, parse_standard_code
-    from app.scanner.search_diag import SearchBatchDiag
+    from app.scanner.search_diag import SearchBatchDiag, is_engineering_standard
+    from app.scanner.mohurd_scan import find_mohurd_standard
     from app.scanner.utils import compute_download_stats, make_filename
     from app.dedup import get_existing_files
     from config.settings import DETAIL_URL, get_delay
@@ -116,6 +117,11 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
                 # 团体标准走 httpx 直连 API 搜索
                 raw_standards = await search_tt_standards(q, per_query_max)
                 site_total = len(raw_standards)
+            elif is_engineering_standard(q):
+                # 工程建设国标（GB 50xxx–55xxx）不在 std.samr，改查住建部公告
+                moh = await loop.run_in_executor(None, find_mohurd_standard, q)
+                raw_standards = [moh] if moh else []
+                site_total = len(raw_standards)
             else:
                 raw_standards, site_total = await loop.run_in_executor(
                     None, fetch_stdpage_search, q, 1, std_type)
@@ -134,7 +140,7 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
                 standards = standards[:per_query_max]
 
             # 编号查询未命中时，用数字部分再搜一次（站点对完整编号的匹配不稳定）
-            if is_code_query and not standards:
+            if is_code_query and not standards and not is_engineering_standard(q):
                 info = parse_standard_code(q)
                 retry_q = (info['part'] + (f"-{info['year']}" if info['year'] else '')) if info else ''
                 if retry_q and retry_q != q.strip():
@@ -234,10 +240,12 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
                 "publishDate": s.get('publishDate', ''),
                 "actDate": s.get('actDate', ''),
                 "downloadable": can_dl,
-                "download_msg": dl_msg,
-                "detailUrl": f"{DETAIL_URL}?id={tid}",
+                "download_msg": s.get('download_msg') or dl_msg,
+                "detailUrl": s.get('detailUrl') or f"{DETAIL_URL}?id={tid}",
                 "query": q,  # 记录命中的关键词，便于审计
             }
+            if s.get('pdf_url'):
+                item['pdf_url'] = s['pdf_url']
             if make_filename(code, name) in existing:
                 item['dlStatus'] = 'skipped_existing'
                 existing_count += 1
