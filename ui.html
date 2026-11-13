@@ -4415,6 +4415,14 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             return badge + retryBtn;
         }
 
+        // 失败原因汇总（与结束文案同源，详情面板内单独展示前 4 类）
+        function _failReasonsHtml(stats) {
+            const entries = Object.entries((stats || {}).fail_reasons || {})
+                .sort((a, b) => b[1] - a[1]).slice(0, 4);
+            if (!entries.length) return '';
+            return `<i class="fa fa-exclamation-circle mr-1"></i><span>失败原因：${entries.map(([r, c]) => `${_escapeAttr(r)}（${c}）`).join(' · ')}</span>`;
+        }
+
         // 搜索诊断摘要（批量搜索任务）：解释命中率与"为什么没有新增"
         function _searchDiagSummaryText(d) {
             const parts = [`查询 ${d.done || 0}/${d.total || 0}`,
@@ -4631,6 +4639,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                         </button>
                     </div>
 
+                    <!-- 下载失败原因汇总 -->
+                    <div class="detail-fail-reasons text-[11px] text-red-500 bg-red-50/60 rounded px-2 py-1" style="${_failReasonsHtml(stats) ? '' : 'display:none'}">${_failReasonsHtml(stats)}</div>
+
                     <!-- 搜索诊断（批量搜索任务） -->
                     ${_searchDiagHtml(task)}
 
@@ -4793,6 +4804,14 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             if (task.search_diag && !_updateSearchDiag(detailEl, task)) {
                 detailEl.innerHTML = '<div class="p-4">' + renderTaskDetail(task) + '</div>';
                 return;
+            }
+
+            // 更新失败原因汇总
+            const failEl = detailEl.querySelector('.detail-fail-reasons');
+            if (failEl) {
+                const failHtml = _failReasonsHtml(stats);
+                failEl.style.display = failHtml ? '' : 'none';
+                if (failEl.innerHTML !== failHtml) failEl.innerHTML = failHtml;
             }
 
             // 更新标准列表标题计数
