@@ -9,7 +9,18 @@
 注意：这里的"候选"指加入待下载列表的条目，不等于最终下载成功数。
 """
 
+import re
+
 _MAX_ZERO_SAMPLES = 50
+
+# 工程建设国家标准（GB 50xxx–55xxx）不纳入 std.samr.gov.cn 检索系统，
+# 查询这类编号必然无结果，需在诊断里明确提示，避免误判为站点限流
+_ENG_STD_RE = re.compile(r'^\s*GB(?:/T)?\s*5[0-5]\d{3}(?:\.\d+)?(?:[\s\-—–]|$)', re.I)
+
+
+def is_engineering_standard(query):
+    """查询是否为工程建设国家标准编号（GB 50xxx–55xxx）。"""
+    return bool(_ENG_STD_RE.match(str(query or '')))
 
 # 0 新增查询的原因分类，供前端按原因重试
 KIND_LABELS = {
@@ -107,6 +118,8 @@ class SearchBatchDiag:
                               unavailable, obsolete, site_total, error, sample_codes)
         kind = self._kind(raw, matched, added, duplicate, existing,
                           unavailable, obsolete, site_total, error)
+        if kind in ('no_result', 'mismatch', 'unparsed') and is_engineering_standard(query):
+            reason += '（工程建设国家标准不在该检索库）'
         self.last = {
             'query': query, 'raw': raw, 'matched': matched, 'added': added,
             'reason': reason, 'error': bool(error), 'kind': kind,

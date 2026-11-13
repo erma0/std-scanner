@@ -57,6 +57,13 @@ class TestSearchBatchDiag:
         assert d.zero_samples[2]['kind'] == 'existing'
         assert d.kind_counts == {'duplicate': 1, 'existing': 2}
 
+    def test_engineering_code_hint(self):
+        d = SearchBatchDiag(2)
+        assert '工程建设国家标准' in d.record('GB 50016-2014', raw=0)
+        assert '工程建设国家标准' in d.record('GB/T 51345-2018', raw=1, matched=0)
+        # 非工程建设编号不受影响
+        assert d.record('GB 1-2020', raw=0) == '站点无结果'
+
     def test_consecutive_empty_warning(self):
         d = SearchBatchDiag(10)
         for i in range(10):
