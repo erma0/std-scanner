@@ -97,11 +97,11 @@ def fetch_stdpage_search(query, page=1, std_type='国家标准'):
         params['op'] = f'G_STD_DOMAIN:"{std_type}"'
 
     try:
-        resp = http_client.get(url, params=params)
+        resp = http_client.get(url, params=params, timeout=30.0)
         resp.raise_for_status()
     except Exception as e:
-        _log.error(f"[ERROR] 搜索请求失败: {e}")
-        return [], 0
+        # 不吞异常：调用方需要区分"站点无结果"和"请求失败"，否则日志会误导用户
+        raise RuntimeError(f'搜索请求失败: {type(e).__name__}: {e}') from e
 
     sel = Selector(resp.text)
     standards = []
@@ -166,6 +166,11 @@ def fetch_stdpage_search(query, page=1, std_type='国家标准'):
             'actDate': act_date,
             'searchType': std_type,
         })
+
+    # 页面显示有结果但没有解析出条目：多半是页面改版或被风控拦截，必须留下明确线索
+    if total_count and not standards:
+        _log.warning(f"[SEARCH] 页面显示共 {total_count} 条但未解析出结果: "
+                     f"query={query!r}, type={std_type}")
 
     return standards, total_count
 

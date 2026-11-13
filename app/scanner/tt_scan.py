@@ -263,8 +263,9 @@ async def search_tt_standards(query: str, max_results: int = 20) -> list:
             None, _call_list_api, 1, page_size, query,
         )
     except Exception as e:
-        _log.error(f"[TT] 搜索 '{query}' 失败: {e}")
-        return []
+        # 不吞异常：调用方需要区分"站点无结果"和"请求失败"，避免把网络故障当成空结果
+        _log.warning(f"[TT] 搜索 '{query}' 失败: {type(e).__name__}: {e}")
+        raise
 
     rows = (data.get('data') or {}).get('rows') or []
     items = _parse_list_rows(rows)

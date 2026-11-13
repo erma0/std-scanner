@@ -2453,7 +2453,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                         searchResults = result.results || [];
                         renderSearchResults(result.total);
                     } else {
-                        showToast('搜索失败', 'error');
+                        showToast('搜索失败：' + (result.detail || '未知错误'), 'error');
                     }
                 } catch (e) {
                     showToast('搜索失败: ' + (e.message || String(e)), 'error');
@@ -2561,7 +2561,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     const result = await resp.json();
                     if (result.success) {
                         batchModal.classList.add('hidden');
-                        showToast(`批量任务已启动（${queries.length} 个关键词）`, 'success');
+                        const dedupeNote = result.duplicates_removed
+                            ? `，已忽略 ${result.duplicates_removed} 个重复行` : '';
+                        showToast(`批量任务已启动（${result.queries_count || queries.length} 个关键词${dedupeNote}）`, 'success');
                         navigateToPage('tasks');
                         setTimeout(() => toggleTaskExpand(result.task_id), 500);
                     } else {
@@ -3603,7 +3605,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                         </div>
                         <div class="mb-3">
                             <div class="flex justify-between text-xs text-gray-500 mb-1.5 gap-2">
-                                <span class="task-message truncate" data-message="${esc(task.message || '')}">${task.message || ''}</span>
+                                <span class="task-message truncate" data-message="${esc(task.message || '')}" title="${esc(task.message || '')}">${task.message || ''}</span>
                                 <span class="flex items-center gap-2 shrink-0">
                                     <span class="task-current-item text-gray-400 truncate" data-current="${esc(task.currentItem || '')}" style="max-width: 12rem;${task.currentItem ? '' : 'display:none'}">${task.currentItem || ''}</span>
                                     <span class="task-progress-text font-medium" data-progress="${task.progress}" data-scan="${task.scan_progress ?? ''}" data-dl="${task.dl_progress ?? ''}">${_getDisplayProgress(task)}%</span>
@@ -3752,6 +3754,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             if (msgEl && msgEl.dataset.message !== msg) {
                 msgEl.dataset.message = msg;
                 msgEl.textContent = msg;
+                msgEl.title = msg;
             }
 
             const curEl = card.querySelector('.task-current-item');
@@ -4376,6 +4379,75 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             return badge + retryBtn;
         }
 
+        // 搜索诊断摘要（批量搜索任务）：解释命中率与"为什么没有新增"
+        function _searchDiagSummaryText(d) {
+            const parts = [`查询 ${d.done || 0}/${d.total || 0}`,
+                           `有结果 ${d.hit_queries || 0}`,
+                           `空结果 ${d.empty_queries || 0}`];
+            if (d.error_queries) parts.push(`异常 ${d.error_queries}`);
+            if (d.raw_total) parts.push(`站点 ${d.raw_total} 条`);
+            if (d.matched_total) parts.push(`匹配 ${d.matched_total} 条`);
+            if (d.duplicate_total) parts.push(`重复 ${d.duplicate_total}`);
+            if (d.existing_total) parts.push(`本地已有 ${d.existing_total}`);
+            if (d.unavailable_total) parts.push(`不可下载 ${d.unavailable_total}`);
+            if (d.obsolete_total) parts.push(`废止 ${d.obsolete_total}`);
+            return parts.join(' · ');
+        }
+
+        function _searchDiagSamplesHtml(d) {
+            return (d.zero_samples || []).slice(-6).reverse()
+                .map(z => `<li class="truncate"><span class="text-gray-500">${_escapeAttr(z.query)}</span> — <span class="text-gray-400">${_escapeAttr(z.reason)}</span></li>`)
+                .join('');
+        }
+
+        function _searchDiagHtml(task) {
+            const d = task.search_diag;
+            if (!d) return '';
+            const summary = _searchDiagSummaryText(d);
+            const samples = _searchDiagSamplesHtml(d);
+            return `<div class="detail-search-diag border border-gray-100 rounded-lg bg-white px-3 py-2">
+                <div class="flex items-center justify-between gap-2">
+                    <span class="text-[11px] font-medium text-gray-500 whitespace-nowrap"><i class="fa fa-search mr-1"></i>搜索诊断</span>
+                    <span class="detail-search-diag-summary text-[11px] text-gray-400 truncate" title="${_escapeAttr(summary)}">${_escapeAttr(summary)}</span>
+                </div>
+                <div class="detail-search-diag-warning text-[11px] text-orange-500 mt-1" style="${d.warning ? '' : 'display:none'}">${d.warning ? `<i class="fa fa-exclamation-triangle mr-1"></i>${_escapeAttr(d.warning)}` : ''}</div>
+                <details class="detail-search-diag-samples mt-1" style="${samples ? '' : 'display:none'}">
+                    <summary class="text-[11px] text-gray-400 cursor-pointer select-none">最近无新增的查询（${(d.zero_samples || []).length}）</summary>
+                    <ul class="detail-search-diag-list mt-1 space-y-0.5 text-[11px]">${samples}</ul>
+                </details>
+            </div>`;
+        }
+
+        function _updateSearchDiag(detailEl, task) {
+            const d = task.search_diag;
+            if (!d) return true;
+            const el = detailEl.querySelector('.detail-search-diag');
+            if (!el) return false;
+            const summary = _searchDiagSummaryText(d);
+            const summaryEl = el.querySelector('.detail-search-diag-summary');
+            if (summaryEl && summaryEl.textContent !== summary) {
+                summaryEl.textContent = summary;
+                summaryEl.title = summary;
+            }
+            const warnEl = el.querySelector('.detail-search-diag-warning');
+            if (warnEl) {
+                warnEl.style.display = d.warning ? '' : 'none';
+                const html = d.warning ? `<i class="fa fa-exclamation-triangle mr-1"></i>${_escapeAttr(d.warning)}` : '';
+                if (warnEl.innerHTML !== html) warnEl.innerHTML = html;
+            }
+            const detailsEl = el.querySelector('.detail-search-diag-samples');
+            const listEl = el.querySelector('.detail-search-diag-list');
+            const samples = _searchDiagSamplesHtml(d);
+            if (detailsEl) detailsEl.style.display = samples ? '' : 'none';
+            if (listEl && listEl.innerHTML !== samples) listEl.innerHTML = samples;
+            const countEl = detailsEl ? detailsEl.querySelector('summary') : null;
+            if (countEl) {
+                const text = `最近无新增的查询（${(d.zero_samples || []).length}）`;
+                if (countEl.textContent !== text) countEl.textContent = text;
+            }
+            return true;
+        }
+
         function getStdUrl(s, task) {
             const t = task && task.std_type;
             // 搜索结果自带详情页链接，直接使用
@@ -4503,6 +4575,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             <i class="fa fa-refresh mr-1"></i>重试全部失败 (${stats.failed || 0}条)
                         </button>
                     </div>
+
+                    <!-- 搜索诊断（批量搜索任务） -->
+                    ${_searchDiagHtml(task)}
 
                     <!-- 变更追踪 -->
                     ${changesHtml}
@@ -4657,6 +4732,12 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 const shouldShow = failedCount > 0 && task.status !== 'running';
                 if (retryBtn.parentElement) retryBtn.parentElement.style.display = shouldShow ? '' : 'none';
                 if (shouldShow) retryBtn.innerHTML = '<i class="fa fa-refresh mr-1"></i>重试全部失败 (' + failedCount + '条)';
+            }
+
+            // 更新搜索诊断（批量搜索进行中每 2 秒推送一次）
+            if (task.search_diag && !_updateSearchDiag(detailEl, task)) {
+                detailEl.innerHTML = '<div class="p-4">' + renderTaskDetail(task) + '</div>';
+                return;
             }
 
             // 更新标准列表标题计数
