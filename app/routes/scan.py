@@ -9,15 +9,15 @@ from typing import Optional, List
 from pydantic import BaseModel, Field
 import time
 import logging
-from datetime import datetime
 
 from .state import task_manager
 from ._utils import launch_task as _launch_task, create_combined_scan_tasks
 # app.scanner_engine 导入耗时长（~0.7s，含 GB/HB/DB/TT 扫描器），延迟到首次使用时
 # compute_download_stats 也延迟导入（app.scanner.utils 触发 captcha/preview 等链，约 250ms）
-from app.notifier import get_notification_service
+from app.task_service import (
+    complete_task, fail_task, notify_task_done, notify_task_failed,
+)
 from config.settings import _resolve_hb_industry
-from app.helpers import format_duration
 
 _log = logging.getLogger('std_scraper')
 
@@ -136,42 +136,28 @@ def _create_scan_task(scan_type, task_id_prefix, config, resume_task_id=None):
                 state_label = std_state or '全部'
                 incr = config.get('incr', False)
                 empty_msg = '无新增标准' if incr else '无符合条件标准'
-                task_manager.update(task_id,
-                    stats={'scanned': 0, 'downloaded': 0, 'success': 0, 'failed': 0, 'skipped': 0},
-                    std_items=[],
-                    progress=100, status="completed",
-                    end_time=time.time(),
-                    message=f"{empty_msg}（{state_label}），跳过下载")
+                empty_stats = {'scanned': 0, 'downloaded': 0, 'success': 0,
+                               'failed': 0, 'skipped': 0}
+                complete_task(task_manager, task_id,
+                              f"{empty_msg}（{state_label}），跳过下载",
+                              stats=empty_stats, std_items=[])
                 _log.info(f"任务 {task_id}: {empty_msg}（{state_label}），跳过下载")
                 task_manager.save_all()
                 return
 
             from app.scanner.utils import compute_download_stats, format_download_summary
             stats = compute_download_stats(standards)
-            task_manager.update(task_id,
-                stats=stats,
-                std_items=standards,
-                progress=100, status="completed",
-                end_time=time.time(),
-                message=format_download_summary(stats, prefix=f"{type_label}下载"))
-
-            task = task_manager.get(task_id)
-            report = task['stats'].copy()
-            report['time'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            if task.get('start_time') and task.get('end_time'):
-                duration = task['end_time'] - task['start_time']
-                report['duration'] = format_duration(duration)
-
-            ns = get_notification_service()
-            ns.send_report(report, task_id=task_id)
+            msg = format_download_summary(stats, prefix=f"{type_label}下载")
+            complete_task(task_manager, task_id, msg, stats=stats, std_items=standards)
+            await notify_task_done(task_manager, task_id, msg, stats)
 
             _log.info(f"任务 {task_id}: 完成")
             task_manager.save_all()
 
         except Exception as e:
             _log.error(f"任务 {task_id} 异常: {e}")
-            task_manager.update(task_id, status="failed", message=str(e), end_time=time.time())
-            send_error_alert(task_id, str(e))
+            fail_task(task_manager, task_id, e)
+            await notify_task_failed(task_manager, task_id, e, title='⚠️ 任务执行错误')
 
     _launch_task(scan_task(), f"scan-{task_id}")
     return {"success": True, "task_id": task_id}
@@ -344,13 +330,3 @@ async def scan_all_standards_api(body: ScanAllRequest):
     )
     _launch_task(scan_fn(), "scan-combined")
     return {"success": True, "task_ids": task_ids}
-
-
-def send_error_alert(task_id, error_message):
-    """发送错误告警"""
-    ns = get_notification_service()
-    ns.send_message(
-        "⚠️ 任务执行错误",
-        f"任务 {task_id} 执行失败\n\n错误信息: {error_message}\n时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-    )
-    _log.error(f"已发送错误告警: {task_id}")

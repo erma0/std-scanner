@@ -128,37 +128,15 @@ async def search_query_api(request: Request):
 
 
 async def _notify_search_done(task_id, message, stats):
-    """搜索/下载任务完成后按配置渠道发送通知（线程执行，避免阻塞事件循环）。"""
-    try:
-        from app.notifier import get_notification_service
-        from app.helpers import format_duration
-        ns = get_notification_service()
-        if not ns.notifiers:
-            return
-        task = task_manager.get(task_id) or {}
-        report = dict(stats or {})
-        report['time'] = time.strftime('%Y-%m-%d %H:%M:%S')
-        report['message'] = message
-        if task.get('start_time'):
-            report['duration'] = format_duration(
-                (task.get('end_time') or time.time()) - task['start_time'])
-        await asyncio.to_thread(ns.send_report, report, task_id)
-    except Exception as e:
-        _log.debug(f"搜索任务通知发送失败: {e}")
+    """搜索/下载任务完成后按配置渠道发送通知。"""
+    from app.task_service import notify_task_done
+    await notify_task_done(task_manager, task_id, message, stats)
 
 
 async def _notify_search_failed(task_id, error):
     """搜索任务异常时的错误通知。"""
-    try:
-        from app.notifier import get_notification_service
-        ns = get_notification_service()
-        if not ns.notifiers:
-            return
-        await asyncio.to_thread(
-            ns.send_message, '搜索任务失败',
-            f'任务 {task_id} 执行失败\n\n错误信息: {str(error)[:300]}', task_id)
-    except Exception as e:
-        _log.debug(f"搜索任务失败通知发送失败: {e}")
+    from app.task_service import notify_task_failed
+    await notify_task_failed(task_manager, task_id, error, title='搜索任务失败')
 
 
 def _create_batch_search_task(queries, std_type, per_query_max, exact_match,
@@ -190,6 +168,7 @@ def _create_batch_search_task(queries, std_type, per_query_max, exact_match,
     async def batch_task():
         from app.scanner.utils import compute_download_stats, format_download_summary
         from app.helpers import format_duration
+        from app.task_service import complete_task, fail_task
         started = time.time()
         try:
             _log.info(f"任务 {task_id}: 批量搜索 {len(queries)} 个关键词"
@@ -206,8 +185,7 @@ def _create_batch_search_task(queries, std_type, per_query_max, exact_match,
 
             if not all_items:
                 msg = f"搜索完成，未找到可下载的标准｜{diag.brief()}" + obsolete_note
-                update_task_status(task_id, progress=100, status="completed",
-                                 message=msg, end_time=time.time())
+                complete_task(task_manager, task_id, msg)
                 _log.info(f"任务 {task_id}: 搜索完成（无结果），耗时 {format_duration(time.time() - started)}，"
                           f"{diag.overview()}")
                 await _notify_search_done(task_id, msg, compute_download_stats(all_items))
@@ -223,8 +201,7 @@ def _create_batch_search_task(queries, std_type, per_query_max, exact_match,
                 if pending == 0:
                     msg = (f"搜索完成，{len(all_items)} 条均无需下载（本地已有或已废止）"
                            f"｜{diag.brief()}{obsolete_note}")
-                    update_task_status(task_id, progress=100, status="completed",
-                                     message=msg, end_time=time.time())
+                    complete_task(task_manager, task_id, msg, stats=stats)
                     await _notify_search_done(task_id, msg, stats)
                     return
                 prefix = '已结束搜索，开始下载' if download_only else '搜索完成，开始下载'
@@ -235,22 +212,19 @@ def _create_batch_search_task(queries, std_type, per_query_max, exact_match,
                     return
                 stats = compute_download_stats(all_items)
                 final_msg = format_download_summary(stats) + f"｜{diag.brief()}" + obsolete_note
-                update_task_status(task_id, progress=100, status="completed",
-                                 message=final_msg, end_time=time.time())
+                complete_task(task_manager, task_id, final_msg, stats=stats)
                 await _notify_search_done(task_id, final_msg, stats)
             else:
                 # 仅搜索：把结果存入 std_items 供前端查看
                 msg = (f"搜索完成，候选 {len(all_items)} 条，待下载 {pending}{existing_note}"
                        f"｜{diag.brief()}{obsolete_note}")
-                task_manager.update(task_id, std_items=all_items, progress=100,
-                                  status="completed", message=msg,
-                                  end_time=time.time())
+                complete_task(task_manager, task_id, msg, stats=stats, std_items=all_items)
                 await _notify_search_done(task_id, msg, stats)
             _log.info(f"任务 {task_id}: 完成，耗时 {format_duration(time.time() - started)}，"
                       f"{diag.overview()}")
         except Exception as e:
             _log.error(f"任务 {task_id} 异常: {e}", exc_info=True)
-            task_manager.update(task_id, status="failed", message=str(e), end_time=time.time())
+            fail_task(task_manager, task_id, e)
             await _notify_search_failed(task_id, e)
 
     _launch_task(batch_task(), f"batch-{task_id}")
@@ -409,35 +383,24 @@ async def search_download_selected_api(request: Request):
     })
 
     async def download_task():
+        from app.task_service import complete_task, fail_task
         try:
             _log.info(f"任务 {task_id}: 下载选中标准 {pending_count} 个（共 {len(items)} 条）")
             await _download_selected_items(task_manager, task_id, items, progress_base=0)
 
             stats = compute_download_stats(items)
             final_msg = format_download_summary(stats)
-            update_task_status(task_id, progress=100, status="completed",
-                             message=final_msg)
-            task_manager.update(task_id, end_time=time.time())
+            complete_task(task_manager, task_id, final_msg, stats=stats)
             _log.info(f"任务 {task_id}: 完成")
             await _notify_search_done(task_id, final_msg, stats)
         except Exception as e:
             _log.error(f"任务 {task_id} 异常: {e}")
-            task_manager.update(task_id, status="failed", message=str(e), end_time=time.time())
+            fail_task(task_manager, task_id, e)
             await _notify_search_failed(task_id, e)
 
     _launch_task(download_task(), f"download-{task_id}")
     return {"success": True, "task_id": task_id, "count": pending_count,
             "skipped_obsolete": skipped_obsolete, "skipped_existing": skipped_existing}
-
-
-async def download_one_search_item(item, output_dir, existing):
-    """供任务单条下载/重试复用：下载一条搜索结果并回写 dlStatus。"""
-    from app.scanner.search_download import SearchDownloadSession
-    session = SearchDownloadSession(output_dir, existing=existing)
-    try:
-        return await session.download_one(item, output_dir)
-    finally:
-        await session.close()
 
 
 # 定时任务管理 API

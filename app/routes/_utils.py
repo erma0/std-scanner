@@ -2,7 +2,6 @@
 import asyncio
 import time
 import logging
-from datetime import datetime
 
 _log = logging.getLogger('std_scraper')
 
@@ -57,8 +56,9 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
     from .state import task_manager
     from app.scanner_engine import run_scan_pipeline
     from app.scanner.utils import compute_download_stats, format_download_summary
-    from app.notifier import get_notification_service
-    from app.helpers import format_duration
+    from app.task_service import (
+        complete_task, fail_task, notify_task_done, notify_task_failed,
+    )
 
     ts = int(time.time())
     type_configs = {
@@ -108,7 +108,6 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
 
     async def _scan_all():
         """并发执行所有子任务"""
-        ns = get_notification_service()
 
         async def _run_one(st, tid):
             tc = type_configs.get(st, {})
@@ -173,39 +172,26 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
                 if not standards:
                     state_label = std_state or '全部'
                     empty_msg = '无新增标准' if incr else '无符合条件标准'
-                    task_manager.update(tid,
-                        stats={'scanned': 0, 'downloaded': 0, 'success': 0, 'failed': 0, 'skipped': 0},
-                        std_items=[],
-                        progress=100, status="completed",
-                        end_time=time.time(),
-                        message=f"{empty_msg}（{state_label}），跳过下载")
+                    empty_stats = {'scanned': 0, 'downloaded': 0, 'success': 0,
+                                   'failed': 0, 'skipped': 0}
+                    complete_task(task_manager, tid,
+                                  f"{empty_msg}（{state_label}），跳过下载",
+                                  stats=empty_stats, std_items=[])
                     _log.info(f"联合子任务 {tid}: {empty_msg}（{state_label}），跳过下载")
                     return {'ok': True, 'st': st, 'cnt': 0, 'empty': True}
 
                 # 统计下载结果
                 stats = compute_download_stats(standards)
-
-                task_manager.update(tid,
-                    stats=stats, std_items=standards,
-                    progress=100, status="completed",
-                    end_time=time.time(),
-                    message=format_download_summary(stats, prefix=f"{_label}下载"))
-
-                # 发送通知
-                task = task_manager.get(tid)
-                report = stats.copy()
-                report['time'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                if task and task.get('start_time') and task.get('end_time'):
-                    duration = task['end_time'] - task['start_time']
-                    report['duration'] = format_duration(duration)
-                ns.send_report(report, task_id=tid)
+                msg = format_download_summary(stats, prefix=f"{_label}下载")
+                complete_task(task_manager, tid, msg, stats=stats, std_items=standards)
+                await notify_task_done(task_manager, tid, msg, stats)
                 _log.info(f"联合子任务 {tid}: 完成")
                 return {'ok': True, 'st': st, 'cnt': len(standards)}
 
             except Exception as e:
                 _log.error(f"联合子任务 {tid} 异常: {e}")
-                task_manager.update(tid, status="failed", message=str(e)[:200],
-                                  end_time=time.time())
+                fail_task(task_manager, tid, str(e)[:200])
+                await notify_task_failed(task_manager, tid, e, title='⚠️ 任务执行错误')
                 return {'ok': False, 'st': st, 'error': str(e)[:200]}
 
         results = await asyncio.gather(
