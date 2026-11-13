@@ -453,12 +453,11 @@ async def download_all_task_items(task_id: str, skip_obsolete: bool = True):
                         end_time=None, paused_duration=0)
 
     async def download_task():
-        from app.routes.search import (
-            _download_selected_items, _notify_search_done, _notify_search_failed,
-        )
+        from app.search_batch_service import download_selected_items
+        from app.routes.search import _notify_search_done, _notify_search_failed
         try:
             _log.info(f"任务 {task_id}: 一键下载 {count} 个标准")
-            await _download_selected_items(task_id, items, progress_base=0)
+            await download_selected_items(task_manager, task_id, items, progress_base=0)
             stats = compute_download_stats(items)
             msg = format_download_summary(stats)
             task_manager.update(
