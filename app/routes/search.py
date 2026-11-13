@@ -314,11 +314,15 @@ async def search_batch_api(request: Request):
 
 
 @router.post("/api/search/task/{task_id}/retry-misses")
-async def retry_search_misses_api(task_id: str):
+async def retry_search_misses_api(task_id: str, request: Request):
     """重试批量搜索中最近 0 新增的查询（站点无结果/编号不匹配/请求异常）。
 
-    诊断样本由 SearchBatchDiag 记录（最多 50 条），沿用原任务的搜索参数创建新任务。
+    body 可选：{"kinds": ["error", "mismatch", "no_result", ...]}
+    不传或传空表示重试全部原因。诊断样本由 SearchBatchDiag 记录（最多 50 条），
+    沿用原任务的搜索参数创建新任务。
     """
+    from app.scanner.search_diag import KIND_LABELS, queries_for_retry
+
     task = task_manager.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
@@ -327,16 +331,23 @@ async def retry_search_misses_api(task_id: str):
     if task.get('status') in ('running', 'pending'):
         raise HTTPException(status_code=400, detail="任务正在运行，请暂停或等待完成后再重试")
 
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    kinds = body.get('kinds') if isinstance(body, dict) else None
+    if isinstance(kinds, str):
+        kinds = [kinds]
+    if not isinstance(kinds, list):
+        kinds = []
+    kinds = [str(k) for k in kinds if str(k) in KIND_LABELS]
+
     samples = (task.get('search_diag') or {}).get('zero_samples') or []
-    queries, seen = [], set()
-    for sample in samples:
-        q = str(sample.get('query') or '').strip()
-        key = ' '.join(q.upper().split())
-        if q and key not in seen:
-            seen.add(key)
-            queries.append(q)
+    queries = queries_for_retry(samples, kinds)
     if not queries:
-        raise HTTPException(status_code=400, detail="没有可重试的查询（仅记录最近 50 个 0 新增查询）")
+        hint = '所选原因分类下' if kinds else ''
+        raise HTTPException(status_code=400,
+                            detail=f"没有可重试的查询（{hint}仅记录最近 50 个 0 新增查询）")
 
     new_id = _create_batch_search_task(
         queries,
@@ -347,8 +358,10 @@ async def retry_search_misses_api(task_id: str):
         bool(task.get('search_auto_download', True)),
         parent_task_id=task_id,
     )
-    _log.info(f"任务 {task_id}: 已创建无新增查询重试任务 {new_id}（{len(queries)} 个查询）")
-    return {"success": True, "task_id": new_id, "count": len(queries)}
+    _log.info(f"任务 {task_id}: 已创建无新增查询重试任务 {new_id}"
+              f"（{len(queries)} 个查询，原因={kinds or '全部'}）")
+    return {"success": True, "task_id": new_id, "count": len(queries),
+            "kinds": kinds}
 
 
 @router.post("/api/search/download")

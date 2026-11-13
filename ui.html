@@ -4311,14 +4311,19 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
         let _searchMissRetry = {};
 
-        async function retrySearchMisses(taskId) {
+        async function retrySearchMisses(taskId, kind) {
             if (_searchMissRetry[taskId]) return;
             _searchMissRetry[taskId] = true;
             try {
-                const resp = await fetch(`${API_BASE}/search/task/${taskId}/retry-misses`, { method: 'POST' });
+                const resp = await fetch(`${API_BASE}/search/task/${taskId}/retry-misses`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(kind ? { kinds: [kind] } : {})
+                });
                 const data = await resp.json();
                 if (data.success) {
-                    showToast(`已创建重试任务（${data.count} 个查询）`, 'success');
+                    const label = kind ? `·${_searchDiagKindLabel(kind)}` : '';
+                    showToast(`已创建重试任务（${data.count} 个查询${label}）`, 'success');
                     navigateToPage('tasks');
                     setTimeout(() => toggleTaskExpand(data.task_id), 500);
                 } else {
@@ -4329,6 +4334,48 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             } finally {
                 delete _searchMissRetry[taskId];
             }
+        }
+
+        function retrySearchMissesByKind(taskId, btn) {
+            const sel = btn.closest('.detail-search-diag-actions')?.querySelector('.detail-search-diag-kind');
+            const kind = sel ? sel.value : '';
+            if (!kind) {
+                showToast('请先选择要重试的原因', 'warning');
+                return;
+            }
+            retrySearchMisses(taskId, kind);
+        }
+
+        function _copyText(text) {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                return navigator.clipboard.writeText(text);
+            }
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            return Promise.resolve();
+        }
+
+        function copySearchDiag(taskId) {
+            const task = detailCache[taskId];
+            const d = task && task.search_diag;
+            if (!d) {
+                showToast('暂无可复制的诊断信息', 'warning');
+                return;
+            }
+            const lines = [`搜索诊断：${_searchDiagSummaryText(d)}`];
+            if (d.warning) lines.push(`告警：${d.warning}`);
+            (d.zero_samples || []).forEach(z => {
+                lines.push(`- [${_searchDiagKindLabel(z.kind)}] ${z.query}：${z.reason}`);
+            });
+            _copyText(lines.join('\n'))
+                .then(() => showToast('诊断摘要已复制', 'success'))
+                .catch(() => showToast('复制失败，请检查浏览器权限', 'error'));
         }
 
         async function bumpTaskPriority(taskId) {
@@ -4440,8 +4487,44 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
         function _searchDiagSamplesHtml(d) {
             return (d.zero_samples || []).slice(-6).reverse()
-                .map(z => `<li class="truncate"><span class="text-gray-500">${_escapeAttr(z.query)}</span> — <span class="text-gray-400">${_escapeAttr(z.reason)}</span></li>`)
+                .map(z => `<li class="truncate" title="${_escapeAttr(z.reason)}"><span class="text-gray-400">[${_escapeAttr(_searchDiagKindLabel(z.kind))}]</span> <span class="text-gray-500">${_escapeAttr(z.query)}</span> — <span class="text-gray-400">${_escapeAttr(z.reason)}</span></li>`)
                 .join('');
+        }
+
+        const _DIAG_KIND_LABELS = {
+            error: '请求异常', unparsed: '页面未解析', no_result: '站点无结果',
+            mismatch: '编号不匹配', duplicate: '重复', existing: '本地已有',
+            unavailable: '不可下载', obsolete: '废止', other: '其他'
+        };
+
+        function _searchDiagKindLabel(kind) {
+            return _DIAG_KIND_LABELS[kind] || '未知原因';
+        }
+
+        // 重试入口：全部 + 按原因筛选（只列出实际出现过的分类）
+        function _searchDiagActionsHtml(task) {
+            const d = task.search_diag || {};
+            const missCount = (d.zero_samples || []).length;
+            if (!missCount || task.status === 'running' || task.status === 'pending') return '';
+            const tid = task.task_id;
+            const counts = d.kind_counts || {};
+            const opts = Object.keys(_DIAG_KIND_LABELS)
+                .filter(k => counts[k] > 0)
+                .map(k => `<option value="${k}">${_DIAG_KIND_LABELS[k]}（${counts[k]}）</option>`)
+                .join('');
+            const sel = opts ? `<select class="detail-search-diag-kind text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white text-gray-600">
+                    <option value="">按原因重试…</option>${opts}
+                </select>
+                <button class="detail-search-diag-retry-kind text-[11px] text-cyan-600 hover:text-cyan-800" onclick="event.stopPropagation();retrySearchMissesByKind('${tid}', this)">
+                    <i class="fa fa-refresh mr-1"></i>重试
+                </button>` : '';
+            return `<button class="detail-search-diag-copy text-[11px] text-gray-500 hover:text-gray-700" onclick="event.stopPropagation();copySearchDiag('${tid}')" title="复制诊断摘要（含原因分类），便于反馈问题">
+                    <i class="fa fa-copy mr-1"></i>复制摘要
+                </button>
+                <button class="detail-search-diag-retry text-[11px] text-cyan-600 hover:text-cyan-800" onclick="event.stopPropagation();retrySearchMisses('${tid}')" title="沿用原任务参数，重试最近无新增的查询">
+                    <i class="fa fa-refresh mr-1"></i>重试全部（${missCount}）
+                </button>
+                ${sel}`;
         }
 
         function _searchDiagHtml(task) {
@@ -4449,8 +4532,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             if (!d) return '';
             const summary = _searchDiagSummaryText(d);
             const samples = _searchDiagSamplesHtml(d);
-            const missCount = (d.zero_samples || []).length;
-            const canRetry = missCount > 0 && task.status !== 'running';
+            const actions = _searchDiagActionsHtml(task);
             return `<div class="detail-search-diag border border-gray-100 rounded-lg bg-white px-3 py-2">
                 <div class="flex items-center justify-between gap-2">
                     <span class="text-[11px] font-medium text-gray-500 whitespace-nowrap"><i class="fa fa-search mr-1"></i>搜索诊断</span>
@@ -4458,14 +4540,10 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 </div>
                 <div class="detail-search-diag-warning text-[11px] text-orange-500 mt-1" style="${d.warning ? '' : 'display:none'}">${d.warning ? `<i class="fa fa-exclamation-triangle mr-1"></i>${_escapeAttr(d.warning)}` : ''}</div>
                 <details class="detail-search-diag-samples mt-1" style="${samples ? '' : 'display:none'}">
-                    <summary class="text-[11px] text-gray-400 cursor-pointer select-none">最近无新增的查询（${missCount}）</summary>
+                    <summary class="text-[11px] text-gray-400 cursor-pointer select-none">最近无新增的查询（${(d.zero_samples || []).length}）</summary>
                     <ul class="detail-search-diag-list mt-1 space-y-0.5 text-[11px]">${samples}</ul>
                 </details>
-                <div class="detail-search-diag-actions mt-2 text-right" style="${canRetry ? '' : 'display:none'}">
-                    <button class="detail-search-diag-retry text-[11px] text-cyan-600 hover:text-cyan-800" onclick="event.stopPropagation();retrySearchMisses('${task.task_id}')" title="沿用原任务参数，重试最近无新增的查询">
-                        <i class="fa fa-refresh mr-1"></i>重试无新增查询（${missCount}）
-                    </button>
-                </div>
+                <div class="detail-search-diag-actions mt-2 flex flex-wrap items-center justify-end gap-2" style="${actions ? '' : 'display:none'}">${actions}</div>
             </div>`;
         }
 
@@ -4497,16 +4575,17 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 if (countEl.textContent !== text) countEl.textContent = text;
             }
             const actionsEl = el.querySelector('.detail-search-diag-actions');
-            const retryBtn = el.querySelector('.detail-search-diag-retry');
-            const missCount = (d.zero_samples || []).length;
             if (actionsEl) {
-                actionsEl.style.display = (missCount > 0 && task.status !== 'running') ? '' : 'none';
-            }
-            if (retryBtn) {
-                const text = `重试无新增查询（${missCount}）`;
-                if (retryBtn.textContent.trim() !== text) {
-                    retryBtn.innerHTML = `<i class="fa fa-refresh mr-1"></i>${text}`;
+                const actions = _searchDiagActionsHtml(task);
+                if (actionsEl.dataset.html !== actions) {
+                    // 保留用户已选择的原因分类，避免实时刷新时下拉被重置
+                    const prevKind = (actionsEl.querySelector('.detail-search-diag-kind') || {}).value || '';
+                    actionsEl.innerHTML = actions;
+                    actionsEl.dataset.html = actions;
+                    const sel = actionsEl.querySelector('.detail-search-diag-kind');
+                    if (sel && prevKind) sel.value = prevKind;
                 }
+                actionsEl.style.display = actions ? '' : 'none';
             }
             return true;
         }

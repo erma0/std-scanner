@@ -11,6 +11,34 @@
 
 _MAX_ZERO_SAMPLES = 50
 
+# 0 新增查询的原因分类，供前端按原因重试
+KIND_LABELS = {
+    'error': '请求异常',
+    'unparsed': '页面未解析',
+    'no_result': '站点无结果',
+    'mismatch': '编号不匹配',
+    'duplicate': '重复',
+    'existing': '本地已有',
+    'unavailable': '不可下载',
+    'obsolete': '废止',
+    'other': '其他',
+}
+
+
+def queries_for_retry(samples, kinds=None):
+    """从诊断样本中提取待重试查询，按 kinds 过滤并去重（保留首次出现顺序）。"""
+    allowed = set(kinds or [])
+    queries, seen = [], set()
+    for sample in samples or []:
+        if allowed and sample.get('kind') not in allowed:
+            continue
+        q = str(sample.get('query') or '').strip()
+        key = ' '.join(q.upper().split())
+        if q and key not in seen:
+            seen.add(key)
+            queries.append(q)
+    return queries
+
 
 class SearchBatchDiag:
     """批量搜索诊断记录器（单任务实例）。"""
@@ -31,6 +59,7 @@ class SearchBatchDiag:
         self.consecutive_empty = 0  # 连续"站点无结果"查询数
         self.warning = ''           # 连续无结果告警（可能被限流）
         self.zero_samples = []      # 最近 0 新增的查询及原因
+        self.kind_counts = {}       # 0 新增原因分类计数
         self.last = {}              # 最近一次查询结果
 
     def record(self, query, raw=0, matched=0, added=0, duplicate=0,
@@ -62,15 +91,36 @@ class SearchBatchDiag:
 
         reason = self._reason(raw, matched, added, duplicate, existing,
                               unavailable, obsolete, site_total, error, sample_codes)
+        kind = self._kind(raw, matched, added, duplicate, existing,
+                          unavailable, obsolete, site_total, error)
         self.last = {
             'query': query, 'raw': raw, 'matched': matched, 'added': added,
-            'reason': reason, 'error': bool(error),
+            'reason': reason, 'error': bool(error), 'kind': kind,
         }
         if not added:
             if len(self.zero_samples) >= _MAX_ZERO_SAMPLES:
                 self.zero_samples.pop(0)
-            self.zero_samples.append({'query': query, 'reason': reason})
+            self.zero_samples.append({'query': query, 'reason': reason, 'kind': kind})
+            self.kind_counts[kind] = self.kind_counts.get(kind, 0) + 1
         return reason
+
+    @staticmethod
+    def _kind(raw, matched, added, duplicate, existing, unavailable,
+              obsolete, site_total, error):
+        """0 新增的主要原因分类；有新增返回空字符串。"""
+        if added:
+            return ''
+        if error:
+            return 'error'
+        if raw == 0:
+            return 'unparsed' if site_total else 'no_result'
+        if matched == 0:
+            return 'mismatch'
+        # 匹配到结果但全部被跳过：取数量最多的一类作为主因
+        counts = {'duplicate': duplicate, 'existing': existing,
+                  'unavailable': unavailable, 'obsolete': obsolete}
+        kind, count = max(counts.items(), key=lambda kv: kv[1])
+        return kind if count else 'other'
 
     @staticmethod
     def _reason(raw, matched, added, duplicate, existing, unavailable,
@@ -136,5 +186,6 @@ class SearchBatchDiag:
             'consecutive_empty': self.consecutive_empty,
             'warning': self.warning,
             'zero_samples': list(self.zero_samples),
+            'kind_counts': dict(self.kind_counts),
             'last': dict(self.last),
         }
