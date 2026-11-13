@@ -4,13 +4,11 @@ import time
 import asyncio
 import logging
 
-from ._utils import launch_task as _launch_task, update_task_status
+from ._utils import launch_task as _launch_task
 from .state import task_manager
 from app.search_batch_service import (
-    batch_search_dedup as _batch_search_dedup,
     download_selected_items as _download_selected_items,
-    wait_if_running as _wait_if_running,
-    is_download_only as _is_download_only,
+    run_batch_search_pipeline as _run_batch_search_pipeline,
 )
 
 # 以下模块均为搜索/下载时才需要的重模块（scanner / captcha / dedup 链），
@@ -144,7 +142,8 @@ def _create_batch_search_task(queries, std_type, per_query_max, exact_match,
                               duplicate_queries=0, parent_task_id=None):
     """创建并启动批量搜索任务，返回 task_id。
 
-    搜索参数会写入任务字段，供"重试无新增查询"复用，避免前端重复传参。
+    搜索参数与完整关键词列表都会写入任务字段，供"继续/重新开始/重试无新增"
+    复用；search_done_count 记录已完成查询数，进程中断后可从此续跑。
     """
     task_id = f"search_batch_{int(time.time() * 1000)}"
     task_manager.create(task_id, {
@@ -157,6 +156,9 @@ def _create_batch_search_task(queries, std_type, per_query_max, exact_match,
         "start_time": time.time(),
         "std_type": "search_batch",
         "std_items": [],
+        "search_queries": list(queries),
+        "search_done_count": 0,
+        "search_phase": "searching",
         "search_std_type": std_type,
         "search_per_query_max": per_query_max,
         "search_exact_match": exact_match,
@@ -164,70 +166,7 @@ def _create_batch_search_task(queries, std_type, per_query_max, exact_match,
         "search_auto_download": auto_download,
         "parent_task_id": parent_task_id,
     })
-
-    async def batch_task():
-        from app.scanner.utils import compute_download_stats, format_download_summary
-        from app.helpers import format_duration
-        from app.task_service import complete_task, fail_task
-        started = time.time()
-        try:
-            _log.info(f"任务 {task_id}: 批量搜索 {len(queries)} 个关键词"
-                      f"（类型={std_type} 每词上限={per_query_max} 精确匹配={exact_match} "
-                      f"跳过废止={skip_obsolete} 自动下载={auto_download}）")
-            all_items, obsolete_skipped, diag = await _batch_search_dedup(
-                task_manager, task_id, queries, std_type, per_query_max, exact_match, skip_obsolete)
-            obsolete_note = f"（搜索阶段跳过废止 {obsolete_skipped} 条）" if obsolete_skipped else ''
-            download_only = bool((task_manager.get(task_id) or {}).get('_download_only'))
-
-            # 暂停时等待用户继续，避免直接进入下载阶段或提前标记完成
-            if not await _wait_if_running(task_manager, task_id):
-                return
-
-            if not all_items:
-                msg = f"搜索完成，未找到可下载的标准｜{diag.brief()}" + obsolete_note
-                complete_task(task_manager, task_id, msg)
-                _log.info(f"任务 {task_id}: 搜索完成（无结果），耗时 {format_duration(time.time() - started)}，"
-                          f"{diag.overview()}")
-                await _notify_search_done(task_id, msg, compute_download_stats(all_items))
-                return
-
-            stats = compute_download_stats(all_items)
-            pending = stats.get('pending', 0)
-            existing_note = f"，本地已有 {stats['skipped_existing']} 条" if stats.get('skipped_existing') else ''
-            _log.info(f"任务 {task_id}: 去重后 {len(all_items)} 个标准，待下载 {pending}，"
-                      f"auto_download={auto_download} download_only={download_only}")
-
-            if auto_download or download_only:
-                if pending == 0:
-                    msg = (f"搜索完成，{len(all_items)} 条均无需下载（本地已有或已废止）"
-                           f"｜{diag.brief()}{obsolete_note}")
-                    complete_task(task_manager, task_id, msg, stats=stats)
-                    await _notify_search_done(task_id, msg, stats)
-                    return
-                prefix = '已结束搜索，开始下载' if download_only else '搜索完成，开始下载'
-                update_task_status(task_id, progress=50,
-                                 message=f"{prefix} {pending} 个标准{existing_note}（{diag.brief()}）...")
-                await _download_selected_items(task_manager, task_id, all_items, progress_base=50)
-                if not await _wait_if_running(task_manager, task_id):
-                    return
-                stats = compute_download_stats(all_items)
-                final_msg = format_download_summary(stats) + f"｜{diag.brief()}" + obsolete_note
-                complete_task(task_manager, task_id, final_msg, stats=stats)
-                await _notify_search_done(task_id, final_msg, stats)
-            else:
-                # 仅搜索：把结果存入 std_items 供前端查看
-                msg = (f"搜索完成，候选 {len(all_items)} 条，待下载 {pending}{existing_note}"
-                       f"｜{diag.brief()}{obsolete_note}")
-                complete_task(task_manager, task_id, msg, stats=stats, std_items=all_items)
-                await _notify_search_done(task_id, msg, stats)
-            _log.info(f"任务 {task_id}: 完成，耗时 {format_duration(time.time() - started)}，"
-                      f"{diag.overview()}")
-        except Exception as e:
-            _log.error(f"任务 {task_id} 异常: {e}", exc_info=True)
-            fail_task(task_manager, task_id, e)
-            await _notify_search_failed(task_id, e)
-
-    _launch_task(batch_task(), f"batch-{task_id}")
+    _launch_task(_run_batch_search_pipeline(task_manager, task_id), f"batch-{task_id}")
     return task_id
 
 

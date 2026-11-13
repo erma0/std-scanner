@@ -117,6 +117,14 @@ def _create_scan_task(scan_type, task_id_prefix, config, resume_task_id=None):
             "paused_duration": 0,
             **retry_config,
         })
+    else:
+        # 续跑已有任务：恢复 running 状态，否则管线会在 _check_pause 处立即中止
+        current = task_manager.get(task_id) or {}
+        if current.get('status') in ('interrupted', 'failed'):
+            task_manager.update(task_id, status='running', end_time=None,
+                                progress=0, scan_progress=0, dl_progress=0,
+                                currentItem='',
+                                message=f'继续扫描{type_label}...')
 
     async def scan_task():
         try:

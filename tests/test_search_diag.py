@@ -64,6 +64,17 @@ class TestSearchBatchDiag:
         assert d.consecutive_empty == 10
         assert '连续 10 个查询' in d.warning
 
+    def test_seed_restore_for_resume(self):
+        d = SearchBatchDiag(3)
+        d.record('q1', raw=0)
+        d.record('q2', raw=4, matched=2, duplicate=2)
+        resumed = SearchBatchDiag(3, seed=d.to_dict())
+        assert resumed.done == d.done == 2
+        assert resumed.kind_counts == d.kind_counts
+        assert resumed.obsolete_total == d.obsolete_total
+        resumed.record('q3', raw=2, matched=1, added=1)
+        assert resumed.done == 3 and resumed.added_total == 1
+
 
 class TestQueriesForRetry:
     def _samples(self):

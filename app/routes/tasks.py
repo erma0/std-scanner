@@ -18,6 +18,135 @@ _log = logging.getLogger('std_scraper')
 router = APIRouter(prefix="", tags=["Tasks"])
 
 
+def _scan_config_from_task(task, std_type):
+    """从历史任务还原扫描配置（继续/重新开始共用），避免丢失筛选条件。"""
+    config = {
+        'max_results': task.get('max_results', 500),
+        'incr': task.get('incr', False),
+        'keyword_group': task.get('keyword_group', '安全生产'),
+        'scan_only': task.get('scan_only', False),
+        'std_state': task.get('std_state', '现行'),
+        'industries': task.get('industries'),
+        'provinces': task.get('provinces'),
+        'cnl1_codes': task.get('cnl1_codes'),
+        'allow_preview': task.get('allow_preview'),
+    }
+    if std_type == 'mem':
+        if task.get('mem_sites'):
+            config['sites'] = task.get('mem_sites')
+        else:
+            config['site'] = task.get('mem_site', 'mem')
+            config['source'] = task.get('mem_source', 'bz')
+    # 移除 None 值，避免污染 config
+    return {k: v for k, v in config.items() if v is not None}
+
+
+async def _resume_interrupted_task(task):
+    """从已持久化的进度继续中断/失败的任务，返回 {mode, ...}。"""
+    task_id = task.get('task_id')
+    std_type = task.get('std_type')
+
+    if std_type == 'search_batch':
+        from app.search_batch_service import run_batch_search_pipeline
+        queries = task.get('search_queries') or []
+        if not queries:
+            raise HTTPException(status_code=400,
+                                detail="任务未保存搜索关键词，无法继续；请重新发起批量搜索")
+        done = int(task.get('search_done_count') or 0)
+        remaining = max(0, len(queries) - done)
+        task_manager.update(
+            task_id, status='running', end_time=None, _download_only=False,
+            search_phase='searching' if remaining else 'downloading',
+            progress=int(50 * done / len(queries)) if queries else 0,
+            message=f'继续批量搜索（剩余 {remaining} 个关键词）' if remaining else '继续下载搜索结果...')
+        _launch_task(run_batch_search_pipeline(task_manager, task_id),
+                     f"resume-search-{task_id}")
+        return {"mode": "search", "remaining": remaining}
+
+    if std_type == 'search':
+        from app.task_service import start_download_all, run_download_all
+        result = await start_download_all(task_manager, task, skip_obsolete=True)
+        if result.pop('launch', False):
+            _launch_task(run_download_all(task_manager, task_id,
+                                          result.pop('items'), result.get('count')),
+                         f"resume-download-{task_id}")
+        return {"mode": "download", **result}
+
+    if std_type in ('gb', 'hb', 'db', 'tt', 'mem'):
+        from app.task_service import resume_scan_download
+        # 中断/失败在下载阶段：保留扫描结果，只补未完成的下载。
+        # 进度 > 40 表示扫描阶段已结束（扫描占 0-40%，下载占 40-100%）。
+        in_download = (task.get('dl_progress') or 0) > 0 or (task.get('progress') or 0) > 40
+        if (std_type in ('gb', 'hb', 'db') and not task.get('scan_only')
+                and in_download and task.get('std_items')):
+            task_manager.update(task_id, status='running', end_time=None,
+                                message='继续下载...')
+            _launch_task(resume_scan_download(task_manager, task_id),
+                         f"resume-download-{task_id}")
+            return {"mode": "download"}
+        # 扫描阶段中断（或 TT/MEM）：同任务重新扫描，已下载文件会被跳过
+        _create_scan_task(std_type, std_type,
+                          _scan_config_from_task(task, std_type),
+                          resume_task_id=task_id)
+        return {"mode": "scan"}
+
+    raise HTTPException(status_code=400, detail=f"不支持的任务类型: {std_type}")
+
+
+def _restart_task(task):
+    """按原参数创建全新任务（重新开始），返回接口响应。"""
+    std_type = task.get('std_type')
+
+    if std_type in ('gb', 'hb', 'db', 'tt', 'mem'):
+        result = _create_scan_task(std_type, std_type,
+                                   _scan_config_from_task(task, std_type))
+        return {"success": True, "new_task_id": result['task_id']}
+
+    if std_type == 'all':
+        # all 类型已废弃，改为创建独立任务（保留原 scan_types）
+        scan_types = task.get('scan_types', ['gb', 'hb', 'db'])
+        task_ids, scan_fn = create_combined_scan_tasks(
+            scan_types=scan_types,
+            max_results=task.get('max_results', 500),
+            incr=task.get('incr', False),
+            keyword_group=task.get('keyword_group', '安全生产'),
+            scan_only=task.get('scan_only', False),
+            std_state=task.get('std_state', '现行'),
+            hb_config={'industries': task.get('industries')},
+            db_config={'provinces': task.get('provinces')},
+            tt_config={'cnl1_codes': task.get('cnl1_codes')},
+        )
+        _launch_task(scan_fn(), "restart-combined")
+        return {"success": True, "new_task_ids": task_ids}
+
+    if std_type == 'search_batch':
+        from app.routes.search import _create_batch_search_task
+        queries = list(task.get('search_queries') or [])
+        if not queries:
+            raise HTTPException(status_code=400,
+                                detail="任务未保存搜索关键词，无法重新开始；请重新发起批量搜索")
+        new_id = _create_batch_search_task(
+            queries,
+            task.get('search_std_type') or '全部',
+            int(task.get('search_per_query_max') or 10),
+            bool(task.get('search_exact_match', True)),
+            bool(task.get('search_skip_obsolete', True)),
+            bool(task.get('search_auto_download', True)),
+        )
+        return {"success": True, "new_task_id": new_id}
+
+    if std_type == 'search':
+        from app.task_service import create_download_restart_task, run_download_all
+        new_id, items = create_download_restart_task(task_manager, task)
+        if not new_id:
+            raise HTTPException(status_code=400, detail="任务中没有可下载的标准")
+        _launch_task(run_download_all(task_manager, new_id, items, len(items)),
+                     f"restart-download-{new_id}")
+        return {"success": True, "new_task_id": new_id}
+
+    raise HTTPException(status_code=400, detail=f"不支持的任务类型: {std_type}")
+
+
 @router.get("/api/task/{task_id}")
 async def get_task_status(task_id: str):
     """获取任务状态"""
@@ -82,67 +211,55 @@ async def pause_task_api(task_id: str):
 
 @router.post("/api/task/{task_id}/resume")
 async def resume_task_api(task_id: str):
-    """继续任务"""
-    if not task_manager.exists(task_id):
+    """继续任务。
+
+    - paused：唤醒内存中的后台协程（原行为）
+    - interrupted / failed：从已保存进度续跑
+        * 扫描任务：中断在下载阶段则只补下载，否则重新扫描（同任务）
+        * 批量搜索：从 search_done_count 继续搜索剩余关键词，再下载
+        * 下载任务：只下载尚未完成的条目
+    """
+    task = task_manager.get(task_id)
+    if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
-    if not task_manager.resume(task_id):
-        raise HTTPException(status_code=400, detail="只能继续已暂停的任务")
-    return {"success": True, "task_id": task_id}
+
+    status = task.get('status')
+    if status == 'paused':
+        if not task_manager.resume(task_id):
+            raise HTTPException(status_code=400, detail="只能继续已暂停的任务")
+        return {"success": True, "task_id": task_id, "mode": "resume"}
+
+    if status not in ('interrupted', 'failed'):
+        raise HTTPException(status_code=400,
+                            detail="仅已暂停、已中断或失败的任务支持继续")
+    result = await _resume_interrupted_task(task)
+    return {"success": True, "task_id": task_id, **result}
 
 
 @router.post("/api/task/{task_id}/retry")
 async def retry_task_api(task_id: str):
-    """重试任务（统一走 run_scan_pipeline）"""
+    """重试任务（等同于重新开始，创建新任务）。"""
     task = task_manager.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
-    std_type = task.get('std_type')
+    if task.get('status') in ('running', 'pending'):
+        raise HTTPException(status_code=400, detail="任务正在运行，请等待完成或先暂停")
+    return _restart_task(task)
 
-    if std_type == 'search':
-        raise HTTPException(status_code=400, detail="搜索下载任务不支持直接重试，请重新提交搜索")
 
-    keyword_group = task.get('keyword_group', '安全生产')
-    max_results = task.get('max_results', 500)
-    incr = task.get('incr', False)
-    scan_only = task.get('scan_only', False)
+@router.post("/api/task/{task_id}/restart")
+async def restart_task_api(task_id: str):
+    """重新开始任务：沿用原参数创建全新任务，原任务记录保留。
 
-    if std_type in ('gb', 'hb', 'db', 'tt', 'mem'):
-        config = {
-            'max_results': max_results,
-            'incr': incr,
-            'keyword_group': keyword_group,
-            'scan_only': scan_only,
-            'industries': task.get('industries'),
-            'provinces': task.get('provinces'),
-            'cnl1_codes': task.get('cnl1_codes'),
-            'source': task.get('source', 'bz') if std_type == 'mem' else None,
-        }
-        # 移除 None 值，避免污染 config
-        config = {k: v for k, v in config.items() if v is not None}
-        result = _create_scan_task(
-            scan_type=std_type,
-            task_id_prefix=std_type,
-            config=config,
-        )
-    elif std_type == 'all':
-        # all 类型已废弃，改为创建独立任务（保留原 scan_types）
-        scan_types = task.get('scan_types', ['gb', 'hb', 'db'])
-        task_ids, scan_fn = create_combined_scan_tasks(
-            scan_types=scan_types,
-            max_results=max_results,
-            incr=incr,
-            keyword_group=keyword_group,
-            scan_only=scan_only,
-            hb_config={'industries': task.get('industries')},
-            db_config={'provinces': task.get('provinces')},
-            tt_config={'cnl1_codes': task.get('cnl1_codes')},
-        )
-        _launch_task(scan_fn(), "retry-combined")
-        return {"success": True, "new_task_ids": task_ids}
-    else:
-        raise HTTPException(status_code=400, detail=f"不支持的任务类型: {std_type}")
-
-    return {"success": True, "new_task_id": result['task_id']}
+    与"继续"的区别：继续在同一任务内接续进度，重新开始则清空进度从头执行。
+    """
+    task = task_manager.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if task.get('status') in ('running', 'pending', 'paused'):
+        raise HTTPException(status_code=400,
+                            detail="任务仍在运行或已暂停，请先继续完成或删除后再重新开始")
+    return _restart_task(task)
 
 
 @router.get("/api/task/{task_id}/detail")

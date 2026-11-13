@@ -43,7 +43,7 @@ def queries_for_retry(samples, kinds=None):
 class SearchBatchDiag:
     """批量搜索诊断记录器（单任务实例）。"""
 
-    def __init__(self, total_queries):
+    def __init__(self, total_queries, seed=None):
         self.total = total_queries
         self.done = 0
         self.hit_queries = 0        # 站点有返回的查询数
@@ -61,6 +61,20 @@ class SearchBatchDiag:
         self.zero_samples = []      # 最近 0 新增的查询及原因
         self.kind_counts = {}       # 0 新增原因分类计数
         self.last = {}              # 最近一次查询结果
+        if seed:
+            self._restore(seed)
+
+    def _restore(self, data):
+        """从任务中已持久化的诊断数据恢复计数（用于中断后续跑）。"""
+        for key in ('done', 'hit_queries', 'empty_queries', 'error_queries',
+                    'raw_total', 'matched_total', 'added_total', 'duplicate_total',
+                    'existing_total', 'unavailable_total', 'obsolete_total',
+                    'consecutive_empty'):
+            setattr(self, key, int(data.get(key) or 0))
+        self.warning = data.get('warning') or ''
+        self.zero_samples = list(data.get('zero_samples') or [])
+        self.kind_counts = dict(data.get('kind_counts') or {})
+        self.last = dict(data.get('last') or {})
 
     def record(self, query, raw=0, matched=0, added=0, duplicate=0,
                existing=0, unavailable=0, obsolete=0, site_total=0,

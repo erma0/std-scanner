@@ -3701,6 +3701,43 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             return 'linear-gradient(90deg, #3b82f6, #06b6d4)';
         }
 
+        // 任务延续能力：继续 = 同任务接续进度；重新开始 = 沿用参数新建任务
+        function _searchRemaining(task) {
+            const total = (task.search_queries || []).length;
+            const done = task.search_done_count || 0;
+            return Math.max(0, total - done);
+        }
+
+        function _hasItems(task) {
+            return (task.std_items || []).length > 0 || (task.std_items_count || 0) > 0;
+        }
+
+        function _canResumeTask(task) {
+            if (task.status === 'paused') return true;
+            if (task.status !== 'failed' && task.status !== 'interrupted') return false;
+            const t = task.std_type;
+            if (t === 'search_batch') return (task.search_queries || []).length > 0 || _hasItems(task);
+            if (t === 'search') return _hasItems(task);
+            return ['gb', 'hb', 'db', 'tt', 'mem'].includes(t);
+        }
+
+        function _canRestartTask(task) {
+            if (!['completed', 'failed', 'interrupted'].includes(task.status)) return false;
+            const t = task.std_type;
+            if (t === 'search_batch') return (task.search_queries || []).length > 0;
+            if (t === 'search') return _hasItems(task);
+            return ['gb', 'hb', 'db', 'tt', 'mem', 'all'].includes(t);
+        }
+
+        function _resumeLabel(task) {
+            if (task.status === 'paused') return '继续';
+            if (task.std_type === 'search_batch') {
+                return _searchRemaining(task) > 0 ? '继续搜索' : '继续下载';
+            }
+            if (task.std_type === 'search') return '继续下载';
+            return '继续';
+        }
+
         function renderTaskCard(task) {
             const stats = task.stats || {};
             const startTime = task.start_time ? new Date(task.start_time * 1000).toLocaleString() : '';
@@ -3724,6 +3761,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             const canDownloadAll = isSearchTask && dlAllStatuses.includes(task.status);
             const dlAllText = task.status === 'paused' ? '下载已有结果' : '下载全部';
             const dlAllTitle = task.status === 'paused' ? '结束搜索并下载已匹配的结果' : '一键下载全部搜索结果';
+            const canResume = _canResumeTask(task);
+            const canRestart = _canRestartTask(task);
+            const resumeLabel = _resumeLabel(task);
 
             const statusClass = task.status === 'running' ? 'bg-yellow-500 text-white'
                 : task.status === 'completed' ? 'bg-green-500 text-white'
@@ -3808,9 +3848,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             </div>
                             <div class="task-actions flex items-center space-x-3" data-status="${task.status}" onclick="event.stopPropagation()">
                                 <button class="task-btn-pause text-yellow-500 hover:text-yellow-700 transition-colors" style="${task.status === 'running' ? '' : 'display:none'}" onclick="pauseTask('${task.task_id}')" title="暂停任务"><i class="fa fa-pause mr-1"></i>暂停</button>
-                                <button class="task-btn-resume text-green-500 hover:text-green-700 transition-colors" style="${task.status === 'paused' ? '' : 'display:none'}" onclick="resumeTask('${task.task_id}')" title="继续任务"><i class="fa fa-play mr-1"></i>继续</button>
+                                <button class="task-btn-resume text-green-500 hover:text-green-700 transition-colors" style="${canResume ? '' : 'display:none'}" onclick="resumeTask('${task.task_id}')" title="从已保存进度继续"><i class="fa fa-play mr-1"></i>${resumeLabel}</button>
                                 <button class="task-btn-download-all text-emerald-600 hover:text-emerald-800 transition-colors" style="${canDownloadAll ? '' : 'display:none'}" onclick="downloadAllTaskItems('${task.task_id}')" title="${dlAllTitle}"><i class="fa fa-cloud-download mr-1"></i>${dlAllText}</button>
-                                <button class="task-btn-retry text-cyan-500 hover:text-cyan-700 transition-colors" style="${(task.status === 'failed' || task.status === 'completed' || task.status === 'interrupted') && !isSearchTask ? '' : 'display:none'}" onclick="retryTask('${task.task_id}')" title="重试任务"><i class="fa fa-refresh mr-1"></i>重试</button>
+                                <button class="task-btn-retry text-cyan-500 hover:text-cyan-700 transition-colors" style="${canRestart ? '' : 'display:none'}" onclick="restartTask('${task.task_id}')" title="沿用原参数创建新任务"><i class="fa fa-repeat mr-1"></i>重新开始</button>
                                 <button class="task-btn-priority text-amber-500 hover:text-amber-700 transition-colors" style="${task.status === 'pending' ? '' : 'display:none'}" onclick="bumpTaskPriority('${task.task_id}')" title="置顶任务"><i class="fa fa-arrow-up mr-1"></i>置顶</button>
                                 <button class="task-btn-folder text-blue-400 hover:text-blue-600 transition-colors" style="${task.status === 'completed' || (stats.success || 0) > 0 ? '' : 'display:none'}" onclick="openOutputDir()"><i class="fa fa-folder-open mr-1"></i>文件夹</button>
                                 <button class="task-btn-delete text-red-400 hover:text-red-600 transition-colors" onclick="deleteTask('${task.task_id}')" title="删除任务"><i class="fa fa-trash mr-1"></i></button>
@@ -3980,10 +4020,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 if (el) el.style.display = show ? '' : 'none';
             };
             const isSearchTask = task.std_type === 'search' || task.std_type === 'search_batch';
-            const ended = task.status === 'failed' || task.status === 'completed' || task.status === 'interrupted';
             const canDownloadAll = isSearchTask && ['completed', 'failed', 'interrupted', 'paused'].includes(task.status);
             toggle('task-btn-pause', task.status === 'running');
-            toggle('task-btn-resume', task.status === 'paused');
+            toggle('task-btn-resume', _canResumeTask(task));
             toggle('task-btn-download-all', canDownloadAll);
             const dlAllBtn = actions.querySelector('.task-btn-download-all');
             if (dlAllBtn) {
@@ -3994,7 +4033,14 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 }
                 dlAllBtn.title = title;
             }
-            toggle('task-btn-retry', ended && !isSearchTask);
+            const resumeBtn = actions.querySelector('.task-btn-resume');
+            if (resumeBtn) {
+                const label = _resumeLabel(task);
+                if (resumeBtn.textContent.trim() !== label) {
+                    resumeBtn.innerHTML = `<i class="fa fa-play mr-1"></i>${label}`;
+                }
+            }
+            toggle('task-btn-retry', _canRestartTask(task));
             toggle('task-btn-priority', task.status === 'pending');
             toggle('task-btn-folder', task.status === 'completed' || ((task.stats || {}).success || 0) > 0);
         }
@@ -4295,33 +4341,41 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             }
         }
 
+        let _resumePending = {};
+
         async function resumeTask(taskId) {
+            if (_resumePending[taskId]) return;
+            _resumePending[taskId] = true;
             try {
                 const resp = await fetch(`${API_BASE}/task/${taskId}/resume`, { method: 'POST' });
+                const data = await resp.json();
                 if (resp.ok) {
-                    // SSE 会推送 task_update，无需 loadTasks
-                    showToast('任务已继续', 'success');
+                    let msg = '任务已继续';
+                    if (data.mode === 'search') msg = `继续搜索剩余 ${data.remaining || 0} 个关键词`;
+                    else if (data.mode === 'download') msg = data.message || '继续下载未完成的标准';
+                    else if (data.mode === 'scan') msg = '已从上次进度继续扫描';
+                    showToast(msg, 'success');
+                    delete detailLastFetch[taskId];
                 } else {
-                    const err = await resp.json();
-                    showToast(err.detail || '继续失败', 'error');
+                    showToast(data.detail || '继续失败', 'error');
                 }
             } catch (e) {
                 showToast('失败: ' + (e.message || String(e)), 'error');
+            } finally {
+                delete _resumePending[taskId];
             }
         }
 
-        async function retryTask(taskId) {
+        async function restartTask(taskId) {
             try {
-                const resp = await fetch(`${API_BASE}/task/${taskId}/retry`, { method: 'POST' });
+                const resp = await fetch(`${API_BASE}/task/${taskId}/restart`, { method: 'POST' });
+                const data = await resp.json();
                 if (resp.ok) {
-                    const data = await resp.json();
-                    // 新任务会通过 SSE 推送，只需刷新列表获取新任务卡片
-                    loadTasks();
                     const ids = data.new_task_ids || (data.new_task_id ? [data.new_task_id] : []);
-                    showToast('已创建重试任务: ' + ids.join(', '), 'success');
+                    showToast('已重新开始: ' + ids.join(', '), 'success');
+                    loadTasks();
                 } else {
-                    const err = await resp.json();
-                    showToast(err.detail || '重试失败', 'error');
+                    showToast(data.detail || '重新开始失败', 'error');
                 }
             } catch (e) {
                 showToast('失败: ' + (e.message || String(e)), 'error');

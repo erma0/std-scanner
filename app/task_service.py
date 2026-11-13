@@ -403,3 +403,108 @@ async def run_download_all(task_manager, task_id, items, count=None):
         _log.error(f"任务 {task_id} 一键下载异常: {e}")
         fail_task(task_manager, task_id, e)
         await notify_task_failed(task_manager, task_id, e)
+
+
+async def resume_scan_download(task_manager, task_id):
+    """扫描任务中断在下载阶段时，只续跑下载（不重新扫描）。
+
+    仅 GB/HB/DB 支持；TT/MEM 的扫描与下载在同一管线内完成，
+    调用方应改为重新执行完整扫描。
+    """
+    from app.scanner import (
+        download_phase, download_hb_standards, download_db_standards,
+        compute_download_stats, format_download_summary,
+    )
+
+    task = task_manager.get(task_id) or {}
+    scan_type = task.get('std_type')
+    standards = task.get('std_items') or []
+    if scan_type not in ('gb', 'hb', 'db') or not standards:
+        return False
+
+    type_label = {'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准'}.get(scan_type, scan_type)
+    progress_base, progress_span = 50, 50
+
+    async def _check_pause():
+        while True:
+            current = task_manager.get(task_id)
+            if not current:
+                return False
+            status = current.get('status')
+            if status == 'running':
+                return True
+            if status != 'paused':
+                return False
+            await asyncio.sleep(1)
+
+    async def _on_progress(pct, msg):
+        task_manager.update(
+            task_id, dl_progress=pct,
+            progress=progress_base + max(1, int(pct * progress_span / 100)),
+            message=msg, persist_std_items=False)
+
+    async def _on_item_done(item_name=''):
+        kwargs = {'stats': compute_download_stats(standards), 'persist_std_items': False}
+        if item_name:
+            kwargs['currentItem'] = item_name
+        task_manager.update(task_id, **kwargs)
+
+    try:
+        _log.info(f"任务 {task_id}: 从下载阶段续跑（{len(standards)} 条）")
+        if scan_type == 'gb':
+            await download_phase(standards,
+                                 allow_preview_override=task.get('allow_preview'),
+                                 on_progress=_on_progress, on_item_done=_on_item_done,
+                                 check_pause=_check_pause)
+        elif scan_type == 'hb':
+            await download_hb_standards(standards, on_progress=_on_progress,
+                                        on_item_done=_on_item_done, check_pause=_check_pause)
+        else:
+            await download_db_standards(standards, on_progress=_on_progress,
+                                        on_item_done=_on_item_done, check_pause=_check_pause)
+
+        if not await _check_pause():
+            return False
+        stats = compute_download_stats(standards)
+        msg = format_download_summary(stats, prefix=f"{type_label}下载")
+        complete_task(task_manager, task_id, msg, stats=stats, std_items=standards)
+        _log.info(f"任务 {task_id}: 下载阶段续跑完成")
+        await notify_task_done(task_manager, task_id, msg, stats)
+        return True
+    except Exception as e:
+        _log.error(f"任务 {task_id} 续跑下载异常: {e}")
+        fail_task(task_manager, task_id, e)
+        await notify_task_failed(task_manager, task_id, e)
+        return False
+
+
+def create_download_restart_task(task_manager, task):
+    """按已保存候选创建新的下载任务（重置下载状态，供"重新开始下载"）。
+
+    Returns:
+        (new_task_id, items)；无候选时返回 (None, [])。
+    """
+    from app.scanner.utils import compute_download_stats
+
+    items = []
+    for item in task.get('std_items') or []:
+        copy = dict(item)
+        copy.pop('dlStatus', None)
+        copy.pop('failReason', None)
+        items.append(copy)
+    if not items:
+        return None, []
+
+    task_id = f"search_{int(time.time() * 1000)}"
+    stats = compute_download_stats(items)
+    task_manager.create(task_id, {
+        "task_id": task_id,
+        "status": "running",
+        "progress": 0,
+        "message": f"重新下载 {len(items)} 个标准",
+        "stats": stats,
+        "start_time": time.time(),
+        "std_type": "search",
+        "std_items": [],
+    })
+    return task_id, items
