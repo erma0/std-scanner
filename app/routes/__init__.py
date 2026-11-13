@@ -133,7 +133,23 @@ async def lifespan(app: FastAPI):
                         scheduler_manager.add_job(job_id, job_config, run_fn=run_scheduled_scan)
         await asyncio.to_thread(_start_scheduler)
 
+    async def _periodic_task_cleanup():
+        """运行期间定期清理旧任务，避免长期不重启时执行历史无限增长。"""
+        while True:
+            await asyncio.sleep(3600)
+            try:
+                from config.manager import load_config
+                tc = load_config().get('tasks', {})
+                await asyncio.to_thread(
+                    task_manager.cleanup_completed,
+                    max_age_hours=tc.get('retention_hours', 168),
+                    max_tasks=tc.get('max_tasks', 200),
+                )
+            except Exception as e:
+                logger.warning(f"定期清理旧任务失败: {e}")
+
     _spawn_background_task(_delayed_background_tasks())
+    _spawn_background_task(_periodic_task_cleanup())
 
     yield
 
