@@ -78,9 +78,10 @@ logger = get_logger()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from app.routes.scheduled import init_config_logger, run_scheduled_scan
+    from app.helpers import init_logging_from_config
+    from app.routes.scheduled import run_scheduled_scan
     from app.routes.sse import sse_reset
-    init_config_logger()
+    init_logging_from_config()
     sse_reset()  # 清理上次运行残留（测试/热重载场景必需）
     logger.info(f"{APP_NAME} API v{VERSION} 启动")
 

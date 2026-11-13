@@ -276,33 +276,6 @@ def save_scheduled_jobs():
     _scheduler_mgr.save_jobs()
 
 
-def init_config_logger():
-    """根据配置文件设置日志级别和文件输出"""
-    try:
-        config = load_config()
-        log_level = config.get('logging', {}).get('level', 'INFO')
-        save_to_file = config.get('logging', {}).get('save_to_file', True)
-        level = getattr(logging, log_level, logging.INFO)
-        _log.setLevel(level)
-        for h in _log.handlers[:]:
-            if isinstance(h, logging.FileHandler):
-                _log.removeHandler(h)
-        if save_to_file:
-            from config.paths import LOG_DIR
-            log_dir = LOG_DIR
-            log_dir.mkdir(parents=True, exist_ok=True)
-            log_file = log_dir / f'std_scraper_{datetime.now().strftime("%Y%m%d")}.log'
-            file_handler = logging.FileHandler(log_file, encoding='utf-8')
-            file_handler.setLevel(level)
-            file_handler.setFormatter(logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                datefmt='%Y-%m-%d %H:%M:%S'
-            ))
-            _log.addHandler(file_handler)
-    except Exception as e:
-        _log.warning(f"加载配置设置日志失败，使用默认值: {e}")
-
-
 # ==================== API 路由 ====================
 
 @router.get("/api/scheduled_jobs")

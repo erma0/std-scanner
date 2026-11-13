@@ -41,6 +41,7 @@ DEFAULT_CONFIG = {
     "logging": {
         "level": "INFO",
         "save_to_file": True,
+        "retention_days": 30,   # 日志文件保留天数
     },
     "tasks": {
         "auto_save": True,
@@ -136,6 +137,9 @@ def validate_config(config):
     valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
     if log_level not in valid_levels:
         errors.append(f"日志级别必须是以下之一: {', '.join(valid_levels)}")
+    retention_days = log_cfg.get("retention_days", 30)
+    if not isinstance(retention_days, int) or not (1 <= retention_days <= 3650):
+        errors.append("日志保留天数必须是 1-3650 的整数")
 
     return len(errors) == 0, errors
 

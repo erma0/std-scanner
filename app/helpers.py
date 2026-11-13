@@ -7,6 +7,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 from pathlib import Path
 from datetime import datetime
 
@@ -47,6 +48,67 @@ def setup_logger(name='std_scraper', log_level=logging.INFO, log_dir=None):
         logger.addHandler(file_handler)
     
     return logger
+
+
+def _cleanup_old_logs(log_dir, retention_days, logger):
+    """删除超过保留期的历史日志，避免日志目录无限增长。"""
+    cutoff = time.time() - max(1, retention_days) * 86400
+    removed = 0
+    for path in Path(log_dir).glob('std_scraper_*.log'):
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+                removed += 1
+        except OSError:
+            continue
+    if removed:
+        logger.info(f"已清理 {removed} 个超过 {retention_days} 天的旧日志")
+
+
+def init_logging_from_config():
+    """按 config.json 的 logging 配置初始化日志级别、文件输出与历史日志清理。
+
+    应在服务启动时调用一次。日志目录固定为 ~/.std_scanner/logs。
+    """
+    from config.manager import load_config
+    from config.paths import LOG_DIR
+
+    logger = get_logger()
+    try:
+        cfg = load_config().get('logging', {})
+        level = getattr(logging, cfg.get('level', 'INFO'), logging.INFO)
+        save_to_file = bool(cfg.get('save_to_file', True))
+        retention_days = int(cfg.get('retention_days', 30) or 30)
+    except Exception as e:
+        logger.warning(f"读取日志配置失败，使用默认值: {e}")
+        level, save_to_file, retention_days = logging.INFO, True, 30
+
+    logger.setLevel(level)
+    # 控制台等已有处理器跟随配置级别；旧的日志文件处理器先移除，避免重复写入
+    for handler in logger.handlers[:]:
+        if isinstance(handler, logging.FileHandler):
+            logger.removeHandler(handler)
+            handler.close()
+        else:
+            handler.setLevel(level)
+
+    if not save_to_file:
+        return
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        log_file = LOG_DIR / f'std_scraper_{datetime.now().strftime("%Y%m%d")}.log'
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setLevel(level)
+        file_handler.setFormatter(logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        ))
+        logger.addHandler(file_handler)
+        logger.info(f"日志级别 {logging.getLevelName(level)}，日志文件 {log_file}")
+    except Exception as e:
+        logger.warning(f"初始化文件日志失败: {e}")
+        return
+    _cleanup_old_logs(LOG_DIR, retention_days, logger)
 
 
 # 全局日志实例
