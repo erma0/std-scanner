@@ -3722,7 +3722,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
         }
 
         function _canRestartTask(task) {
-            if (!['completed', 'failed', 'interrupted'].includes(task.status)) return false;
+            if (!['completed', 'failed', 'interrupted', 'paused'].includes(task.status)) return false;
             const t = task.std_type;
             if (t === 'search_batch') return (task.search_queries || []).length > 0;
             if (t === 'search') return _hasItems(task);
@@ -3850,7 +3850,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                 <button class="task-btn-pause text-yellow-500 hover:text-yellow-700 transition-colors" style="${task.status === 'running' ? '' : 'display:none'}" onclick="pauseTask('${task.task_id}')" title="暂停任务"><i class="fa fa-pause mr-1"></i>暂停</button>
                                 <button class="task-btn-resume text-green-500 hover:text-green-700 transition-colors" style="${canResume ? '' : 'display:none'}" onclick="resumeTask('${task.task_id}')" title="从已保存进度继续"><i class="fa fa-play mr-1"></i>${resumeLabel}</button>
                                 <button class="task-btn-download-all text-emerald-600 hover:text-emerald-800 transition-colors" style="${canDownloadAll ? '' : 'display:none'}" onclick="downloadAllTaskItems('${task.task_id}')" title="${dlAllTitle}"><i class="fa fa-cloud-download mr-1"></i>${dlAllText}</button>
-                                <button class="task-btn-retry text-cyan-500 hover:text-cyan-700 transition-colors" style="${canRestart ? '' : 'display:none'}" onclick="restartTask('${task.task_id}')" title="沿用原参数创建新任务"><i class="fa fa-repeat mr-1"></i>重新开始</button>
+                                <button class="task-btn-retry text-cyan-500 hover:text-cyan-700 transition-colors" style="${canRestart ? '' : 'display:none'}" onclick="restartTask('${task.task_id}')" title="沿用原参数创建新任务（运行/暂停中的进度将终止）"><i class="fa fa-repeat mr-1"></i>重新开始</button>
                                 <button class="task-btn-priority text-amber-500 hover:text-amber-700 transition-colors" style="${task.status === 'pending' ? '' : 'display:none'}" onclick="bumpTaskPriority('${task.task_id}')" title="置顶任务"><i class="fa fa-arrow-up mr-1"></i>置顶</button>
                                 <button class="task-btn-folder text-blue-400 hover:text-blue-600 transition-colors" style="${task.status === 'completed' || (stats.success || 0) > 0 ? '' : 'display:none'}" onclick="openOutputDir()"><i class="fa fa-folder-open mr-1"></i>文件夹</button>
                                 <button class="task-btn-delete text-red-400 hover:text-red-600 transition-colors" onclick="deleteTask('${task.task_id}')" title="删除任务"><i class="fa fa-trash mr-1"></i></button>

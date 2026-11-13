@@ -168,6 +168,12 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
                     task_id=tid, task_manager=task_manager,
                 )
 
+                # 任务已被删除或状态被外部改变（如"重新开始"标记中断）：不要覆盖终态
+                current = task_manager.get(tid)
+                if not current or current.get('status') not in ('running', 'paused'):
+                    _log.info(f"联合子任务 {tid}: 已被中止，跳过完成标记")
+                    return {'ok': True, 'st': st, 'cnt': 0, 'aborted': True}
+
                 # 扫描结果为空：区分"无新增（增量命中）"和"无符合条件标准"
                 if not standards:
                     state_label = std_state or '全部'
@@ -198,13 +204,16 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
             *[_run_one(st, tid) for st, tid in zip(scan_types, task_ids)]
         )
 
-        # 汇总日志：区分 完成任务 / 空任务（无符合条件标准） / 失败任务
+        # 汇总日志：区分 完成任务 / 空任务（无符合条件标准） / 已中止 / 失败任务
         ok_types = []
         empty_types = []
+        aborted_types = []
         fail_types = []
         for r in results:
             if not r.get('ok'):
                 fail_types.append(f"{r['st']}:{r.get('error', '')}")
+            elif r.get('aborted'):
+                aborted_types.append(r['st'])
             elif r.get('empty'):
                 empty_types.append(r['st'])
             else:
@@ -215,6 +224,8 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
             summary_parts.append(f"成功={ok_types}")
         if empty_types:
             summary_parts.append(f"无符合条件标准={empty_types}")
+        if aborted_types:
+            summary_parts.append(f"已中止={aborted_types}")
         if fail_types:
             summary_parts.append(f"失败={fail_types}")
         _log.info(f"联合扫描完成: {', '.join(summary_parts) if summary_parts else '全部空'}")

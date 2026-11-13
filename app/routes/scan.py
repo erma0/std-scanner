@@ -138,6 +138,14 @@ def _create_scan_task(scan_type, task_id_prefix, config, resume_task_id=None):
                 task_manager=task_manager,
             )
 
+            # 任务已被删除或状态被外部改变（如"重新开始"标记中断）：不要覆盖终态
+            current = task_manager.get(task_id)
+            if not current or current.get('status') not in ('running', 'paused'):
+                _log.info(f"任务 {task_id}: 已被中止（状态="
+                          f"{current.get('status') if current else '已删除'}），跳过完成标记")
+                task_manager.save_all()
+                return
+
             # 扫描结果为空：区分"无新增（增量命中）"和"无符合条件标准"，不计入下载统计
             if not standards:
                 std_state = config.get('std_state', '现行')

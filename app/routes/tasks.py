@@ -244,21 +244,35 @@ async def retry_task_api(task_id: str):
         raise HTTPException(status_code=404, detail="任务不存在")
     if task.get('status') in ('running', 'pending'):
         raise HTTPException(status_code=400, detail="任务正在运行，请等待完成或先暂停")
+    _stop_paused_task(task)
     return _restart_task(task)
+
+
+def _stop_paused_task(task):
+    """重新开始前终止暂停任务的协程：标记为中断并保留历史记录。
+
+    后台协程会在下一个暂停检查点看到非 running/paused 状态并退出。
+    """
+    if task.get('status') == 'paused':
+        task_manager.update(task['task_id'], status='interrupted',
+                            end_time=time.time(), currentItem='',
+                            message='已被重新开始替代')
 
 
 @router.post("/api/task/{task_id}/restart")
 async def restart_task_api(task_id: str):
     """重新开始任务：沿用原参数创建全新任务，原任务记录保留。
 
+    暂停中的任务也可重新开始：旧任务会被标记为已中断并停止后台协程。
     与"继续"的区别：继续在同一任务内接续进度，重新开始则清空进度从头执行。
     """
     task = task_manager.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
-    if task.get('status') in ('running', 'pending', 'paused'):
+    if task.get('status') in ('running', 'pending'):
         raise HTTPException(status_code=400,
-                            detail="任务仍在运行或已暂停，请先继续完成或删除后再重新开始")
+                            detail="任务正在运行，请先暂停或等待完成后再重新开始")
+    _stop_paused_task(task)
     return _restart_task(task)
 
 
