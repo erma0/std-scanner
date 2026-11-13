@@ -3616,6 +3616,10 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             </div>
                         </div>
 
+                        <div class="task-scan-note text-[11px] text-orange-500 mb-2" style="${task.scan_note ? '' : 'display:none'}" title="${esc(task.scan_note || '')}">
+                            <i class="fa fa-exclamation-triangle mr-1"></i><span class="task-scan-note-text">${esc(task.scan_note || '')}</span>
+                        </div>
+
                         ${(stats.scanned || stats.success || stats.failed || stats.skipped) ? `
                         <div class="mb-3">
                             <div class="flex items-center justify-between text-[13px]">
@@ -3755,6 +3759,16 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 msgEl.dataset.message = msg;
                 msgEl.textContent = msg;
                 msgEl.title = msg;
+            }
+
+            // 扫描页请求失败提示（结果可能不完整）
+            const noteEl = card.querySelector('.task-scan-note');
+            if (noteEl) {
+                const note = task.scan_note || '';
+                noteEl.style.display = note ? '' : 'none';
+                const noteText = noteEl.querySelector('.task-scan-note-text');
+                if (noteText && noteText.textContent !== note) noteText.textContent = note;
+                noteEl.title = note;
             }
 
             const curEl = card.querySelector('.task-current-item');

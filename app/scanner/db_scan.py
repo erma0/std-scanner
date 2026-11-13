@@ -43,7 +43,7 @@ def fetch_db_list(province='', key='', status=None, page=1, size=100):
     return resp.json()
 
 
-def scan_db_standards(provinces=None, max_results=500, incr=False, keyword_group=None, on_progress=None, on_intermediate=None, check_pause=None, status='现行'):
+def scan_db_standards(provinces=None, max_results=500, incr=False, keyword_group=None, on_progress=None, on_intermediate=None, check_pause=None, status='现行', on_error=None):
     """地方标准扫描（支持 max_results + 增量）
 
     status: 标准状态筛选 — ''(全部), '现行', '即将实施', '废止'。默认 '现行'
@@ -65,7 +65,7 @@ def scan_db_standards(provinces=None, max_results=500, incr=False, keyword_group
     def _fetch(item, page, size):
         return fetch_db_list(province=item, page=page, size=size, status=status)
 
-    return _scan_list_standards(provinces, '省份', _fetch, 'db', 'DB-SCAN', max_results, incr, on_progress=on_progress, on_intermediate=on_intermediate, check_pause=check_pause)
+    return _scan_list_standards(provinces, '省份', _fetch, 'db', 'DB-SCAN', max_results, incr, on_progress=on_progress, on_intermediate=on_intermediate, check_pause=check_pause, on_error=on_error)
 
 
 async def download_db_standards(standards, on_progress=None, on_item_done=None, check_pause=None):

@@ -28,7 +28,7 @@ _PROGRESS_SAVE_INTERVAL = 10
 
 
 # ==================== Phase 1: API 扫描 ====================
-async def scan_pages(max_results=500, incr=False, keyword_group=None, on_progress=None, check_pause=None, on_intermediate=None, state='现行'):
+async def scan_pages(max_results=500, incr=False, keyword_group=None, on_progress=None, check_pause=None, on_intermediate=None, state='现行', on_error=None):
     """扫描国家标准 API，按 max_results 控制采集条数。
     
     网页默认按 id 降序（最新在前）。incr=True 时从 checkpoint 读取
@@ -63,7 +63,10 @@ async def scan_pages(max_results=500, incr=False, keyword_group=None, on_progres
             loop = asyncio.get_running_loop()
             data = await loop.run_in_executor(None, fetch_api_page, p, state)
         except Exception as e:
-            _log.warning(f"第{p}页请求失败: {e}, 跳过")
+            if on_error:
+                on_error(p, e)
+            else:
+                _log.warning(f"第{p}页请求失败: {e}, 跳过")
             await asyncio.sleep(get_delay() * 2)
             continue
 

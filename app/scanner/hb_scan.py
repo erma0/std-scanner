@@ -63,7 +63,7 @@ def fetch_hb_list(industry='', key='', status=None, page=1, size=100):
     return resp.json()
 
 
-def _scan_list_standards(items, item_label, fetch_fn, site_type, log_prefix, max_results=500, incr=False, on_progress=None, on_intermediate=None, check_pause=None):
+def _scan_list_standards(items, item_label, fetch_fn, site_type, log_prefix, max_results=500, incr=False, on_progress=None, on_intermediate=None, check_pause=None, on_error=None):
     """统一的行业/地方标准扫描，支持 max_results + incr。
 
     网页默认按最新在前排序。incr=True 时从 checkpoint 读取各 item
@@ -100,7 +100,10 @@ def _scan_list_standards(items, item_label, fetch_fn, site_type, log_prefix, max
             try:
                 result = fetch_fn(item, page, size=100)
             except Exception as e:
-                _log.warning(f"   {item_label}={label} 第{page}页请求失败: {e}")
+                if on_error:
+                    on_error(label, page, e)
+                else:
+                    _log.warning(f"   {item_label}={label} 第{page}页请求失败: {e}")
                 break
 
             records = result.get('records', [])
@@ -306,7 +309,7 @@ async def _download_standards(standards, log_prefix='HB-DL', on_progress=None, o
     _log.info(f"{log_prefix} 下载:{stats['downloaded']} 跳过:{stats['skipped_existing']} 版权:{stats['copyright']} 失败:{stats['failed']}")
 
 
-def scan_hb_standards(industries=None, max_results=500, incr=False, keyword_group=None, on_progress=None, on_intermediate=None, check_pause=None, status='现行'):
+def scan_hb_standards(industries=None, max_results=500, incr=False, keyword_group=None, on_progress=None, on_intermediate=None, check_pause=None, status='现行', on_error=None):
     """行业标准扫描（支持 max_results + 增量）
 
     status: 标准状态筛选 — ''(全部), '现行', '即将实施', '废止'。默认 '现行'
@@ -331,7 +334,7 @@ def scan_hb_standards(industries=None, max_results=500, incr=False, keyword_grou
     def _fetch(item, page, size):
         return fetch_hb_list(industry=item, page=page, size=size, status=status)
 
-    return _scan_list_standards(industries, '行业', _fetch, 'hb', 'HB-SCAN', max_results, incr, on_progress=on_progress, on_intermediate=on_intermediate, check_pause=check_pause)
+    return _scan_list_standards(industries, '行业', _fetch, 'hb', 'HB-SCAN', max_results, incr, on_progress=on_progress, on_intermediate=on_intermediate, check_pause=check_pause, on_error=on_error)
 
 
 async def download_hb_standards(standards, on_progress=None, on_item_done=None, check_pause=None):

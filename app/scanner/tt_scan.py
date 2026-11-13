@@ -133,6 +133,7 @@ async def scan_tt_standards(
     on_intermediate: Callable = None,
     check_pause: Callable = None,
     status: str = '现行',
+    on_error: Callable = None,
 ) -> list:
     """扫描团体标准列表（httpx 直接调用 /cms-proxy/ms/ 接口，无 WAF）。
 
@@ -189,7 +190,10 @@ async def scan_tt_standards(
                 None, _call_list_api, page_no, _TT_PAGE_SIZE, '',
             )
         except Exception as e:
-            _log.error(f"[TT] 第{page_no}页列表请求失败: {e}")
+            if on_error:
+                on_error(page_no, e)
+            else:
+                _log.error(f"[TT] 第{page_no}页列表请求失败: {e}")
             break
 
         rows = (data.get('data') or {}).get('rows') or []
@@ -502,21 +506,37 @@ async def run_tt_pipeline(
     # === 阶段1: 扫描 ===
     if task_manager and task_id:
         task_manager.update(task_id, progress=progress_base + 1,
-                            scan_progress=0, message='扫描团体标准...')
+                            scan_progress=0, message='扫描团体标准...',
+                            scan_note='', persist_std_items=False)
+
+    scan_errors = []
+
+    def _on_scan_error(page, exc):
+        scan_errors.append(f'第{page}页 {type(exc).__name__}: {exc}')
+        _log.warning(f"[TT] 扫描请求失败: {scan_errors[-1]}")
 
     standards = await scan_tt_standards(
         cnl1_codes=cnl1_codes, max_results=max_results, incr=incr,
         keyword_group=keyword_group, on_progress=_on_scan_progress,
         on_intermediate=_on_intermediate, check_pause=_check_pause, status=std_state,
+        on_error=_on_scan_error,
     )
     standards_holder.append(standards)
 
+    scan_note = ''
+    if scan_errors:
+        scan_note = (f'{len(scan_errors)} 页请求失败，结果可能不完整'
+                     f'（最近：{scan_errors[-1]}）')
+
     if task_manager and task_id:
         task_manager.update(task_id, progress=progress_base + progress_per_scan,
-                            scan_progress=100, message=f'团体标准扫描完成({len(standards)}条)',
+                            scan_progress=100,
+                            message=f'团体标准扫描完成({len(standards)}条)' +
+                                    (f'，{scan_note}' if scan_note else ''),
+                            scan_note=scan_note,
                             stats={'scanned': len(standards)}, std_items=standards)
 
-    _log.info(f"[TT] 扫描完成: {len(standards)} 条")
+    _log.info(f"[TT] 扫描完成: {len(standards)} 条" + (f"；{scan_note}" if scan_note else ''))
 
     # 变更追踪
     try:
@@ -528,6 +548,10 @@ async def run_tt_pipeline(
 
     # 扫描结果为空：区分"无新增（增量命中）"和"无符合条件标准"，跳过下载阶段
     if not standards:
+        if scan_errors:
+            msg = f"扫描失败：{len(scan_errors)} 页请求失败（最近：{scan_errors[-1]}）"
+            _log.error(f"[TT] {msg}")
+            raise RuntimeError(msg)
         if task_manager and task_id:
             state_label = std_state or '全部'
             empty_msg = '无新增标准' if incr else '无符合条件标准'

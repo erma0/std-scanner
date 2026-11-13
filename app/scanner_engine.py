@@ -81,6 +81,21 @@ async def run_scan_pipeline(
 
     type_label = {'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准', 'mem': '应急管理部标准'}.get(scan_type, scan_type)
 
+    # 扫描页请求失败记录：用于提示"结果可能不完整"，避免把网络失败误报成"无符合条件标准"
+    if task_manager and task_id:
+        task_manager.update(task_id, scan_note='', persist_std_items=False)
+    scan_errors = []
+
+    def _on_scan_error(*args):
+        """gb: (page, exc)；hb/db: (label, page, exc)。"""
+        if len(args) == 2:
+            label, page, exc = '', args[0], args[1]
+        else:
+            label, page, exc = args
+        prefix = f'{label} ' if label else ''
+        scan_errors.append(f'{prefix}第{page}页 {type(exc).__name__}: {exc}')
+        _log.warning(f"[ENGINE] {scan_type.upper()} 扫描请求失败: {scan_errors[-1]}")
+
     # === 构建进度回调 ===
     async def _on_scan_progress(pct, msg):
         if task_manager and task_id:
@@ -160,7 +175,8 @@ async def run_scan_pipeline(
     if scan_type == 'gb':
         standards = await scan_pages(max_results, incr=incr, keyword_group=keyword_group,
                                      on_progress=_on_scan_progress, check_pause=_check_pause,
-                                     on_intermediate=_on_scan_intermediate, state=std_state)
+                                     on_intermediate=_on_scan_intermediate, state=std_state,
+                                     on_error=_on_scan_error)
 
     elif scan_type == 'hb':
         industries = config.get('industries', None)
@@ -174,6 +190,7 @@ async def run_scan_pipeline(
                 on_progress=_on_sync_scan_progress,
                 on_intermediate=_on_intermediate,
                 check_pause=_check_pause_sync, status=std_state,
+                on_error=_on_scan_error,
             )
         )
 
@@ -189,18 +206,27 @@ async def run_scan_pipeline(
                 on_progress=_on_sync_scan_progress,
                 on_intermediate=_on_intermediate,
                 check_pause=_check_pause_sync, status=std_state,
+                on_error=_on_scan_error,
             )
         )
+
+    scan_note = ''
+    if scan_errors:
+        scan_note = (f'{len(scan_errors)} 页请求失败，结果可能不完整'
+                     f'（最近：{scan_errors[-1]}）')
 
     if task_manager and task_id:
         task_manager.update(task_id,
             progress=progress_base + progress_per_scan,
             scan_progress=100,
-            message=f"{type_label}扫描完成({len(standards)}条)",
+            message=f"{type_label}扫描完成({len(standards)}条)" +
+                    (f"，{scan_note}" if scan_note else ''),
+            scan_note=scan_note,
             stats={'scanned': len(standards)},
             std_items=standards)
 
-    _log.info(f"[ENGINE] {scan_type.upper()} 扫描完成: {len(standards)} 条")
+    _log.info(f"[ENGINE] {scan_type.upper()} 扫描完成: {len(standards)} 条"
+              + (f"；{scan_note}" if scan_note else ""))
 
     # 变更追踪：与上次快照对比，检测新增/状态变更
     changes = None
@@ -222,6 +248,11 @@ async def run_scan_pipeline(
 
     # 扫描结果为空：区分"无新增（增量命中）"和"无符合条件标准"，跳过下载阶段
     if not standards:
+        # 有请求失败且无任何结果时，不能当作"无符合条件标准"，按扫描失败上报
+        if scan_errors:
+            msg = f"扫描失败：{len(scan_errors)} 页请求失败（最近：{scan_errors[-1]}）"
+            _log.error(f"[ENGINE] {scan_type.upper()} {msg}")
+            raise RuntimeError(msg)
         if task_manager and task_id:
             state_label = std_state or '全部'
             # incr=True 且结果为空：增量扫描命中 checkpoint，无新增数据
