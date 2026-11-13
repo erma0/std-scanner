@@ -63,6 +63,46 @@ class TestRowToTaskDict:
         conn.execute("DELETE FROM tasks WHERE id = 'test-stats-001'")
         conn.commit()
 
+    def test_std_type_restored(self):
+        """task_type 列恢复为 std_type，避免重启后任务失去类型"""
+        database.ensure_db()
+        conn = database._get_conn()
+        conn.execute("DELETE FROM tasks WHERE id = 'test-stdtype-001'")
+        conn.commit()
+
+        database.save_task(
+            'test-stdtype-001',
+            {'status': 'completed', 'std_type': 'search_batch', 'message': 'ok'}
+        )
+        task = database.get_task('test-stdtype-001')
+        assert task['std_type'] == 'search_batch'
+
+        conn.execute("DELETE FROM tasks WHERE id = 'test-stdtype-001'")
+        conn.commit()
+
+    def test_extra_fields_roundtrip(self):
+        """未显式建列的元数据通过 extra 列持久化，内部字段不入库"""
+        database.ensure_db()
+        conn = database._get_conn()
+        conn.execute("DELETE FROM tasks WHERE id = 'test-extra-001'")
+        conn.commit()
+
+        database.save_task('test-extra-001', {
+            'status': 'completed', 'std_type': 'search_batch', 'message': 'ok',
+            'search_diag': {'done': 3, 'zero_samples': [{'query': 'GB 1', 'reason': '无结果'}]},
+            'scan_note': '2 页请求失败',
+            'mem_sites': [{'site': 'mem'}],
+            '_download_only': True,
+        })
+        task = database.get_task('test-extra-001')
+        assert task['search_diag']['done'] == 3
+        assert task['scan_note'] == '2 页请求失败'
+        assert task['mem_sites'][0]['site'] == 'mem'
+        assert '_download_only' not in task
+
+        conn.execute("DELETE FROM tasks WHERE id = 'test-extra-001'")
+        conn.commit()
+
 
 class TestTaskOperations:
     def test_create_and_get(self):

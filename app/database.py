@@ -15,6 +15,25 @@ from config.paths import CONFIG_DIR, DB_PATH, migrate_old_data
 _log = logging.getLogger('std_scraper')
 _db_lock = threading.Lock()
 
+# 显式入库的任务字段；其余非下划线字段统一序列化到 extra 列，
+# 避免新增任务元数据（search_diag / scan_note / 搜索参数 / mem_sites 等）时反复改表。
+_TASK_CORE_FIELDS = frozenset({
+    'task_id', 'id', 'std_type', 'task_type', 'status', 'progress', 'message',
+    'stats', 'sub_stats', 'start_time', 'end_time', 'paused_duration', 'paused_at',
+    'std_items', 'keyword_group', 'max_results', 'incr', 'scan_only',
+    'industries', 'provinces', 'changes', 'priority', 'created_at', 'updated_at',
+    'duration', 'std_items_count', 'extra',
+})
+
+
+def _collect_extra(task_data: Dict):
+    """收集未显式入库的任务字段，序列化为 JSON（忽略以下划线开头的内部字段）。"""
+    extra = {
+        k: v for k, v in task_data.items()
+        if k not in _TASK_CORE_FIELDS and not str(k).startswith('_')
+    }
+    return json.dumps(extra, ensure_ascii=False) if extra else None
+
 # 线程本地存储：每个线程保持一个连接
 _thread_local = threading.local()
 
@@ -111,7 +130,8 @@ def init_db():
                                 ('std_items', 'TEXT'), ('keyword_group', 'TEXT'),
                                 ('max_results', 'INTEGER DEFAULT 500'), ('incr', 'INTEGER DEFAULT 0'),
                                 ('scan_only', 'INTEGER DEFAULT 0'), ('industries', 'TEXT'),
-                                ('provinces', 'TEXT'), ('changes', 'TEXT'), ('priority', 'INTEGER DEFAULT 0')]:
+                                ('provinces', 'TEXT'), ('changes', 'TEXT'), ('priority', 'INTEGER DEFAULT 0'),
+                                ('extra', 'TEXT')]:
             try:
                 cursor.execute(f'ALTER TABLE tasks ADD COLUMN {col} {col_type}')
             except sqlite3.OperationalError:
@@ -182,6 +202,7 @@ def save_task(task_id: str, task_data: Dict, from_migration: bool = False):
     provinces = json.dumps(task_data.get('provinces')) if task_data.get('provinces') else None
     changes = json.dumps(task_data.get('changes')) if task_data.get('changes') else None
     priority = task_data.get('priority', 0)
+    extra = _collect_extra(task_data)
     
     with _db_lock, conn:
         cursor = conn.cursor()
@@ -195,13 +216,13 @@ def save_task(task_id: str, task_data: Dict, from_migration: bool = False):
             SET task_type=?, status=?, progress=?, message=?, stats=?, sub_stats=?,
                 start_time=?, end_time=?, paused_duration=?, paused_at=?,
                 std_items=?, keyword_group=?, max_results=?, incr=?, scan_only=?,
-                industries=?, provinces=?, changes=?, priority=?, updated_at=?
+                industries=?, provinces=?, changes=?, priority=?, extra=?, updated_at=?
             WHERE id=?
             ''', (
                 task_type, status, progress, message, stats, sub_stats,
                 start_time, end_time, paused_duration, paused_at,
                 std_items, keyword_group, max_results, incr, scan_only,
-                industries, provinces, changes, priority, now, task_id
+                industries, provinces, changes, priority, extra, now, task_id
             ))
         else:
             cursor.execute('''
@@ -209,13 +230,13 @@ def save_task(task_id: str, task_data: Dict, from_migration: bool = False):
                 id, task_type, status, progress, message, stats, sub_stats,
                 start_time, end_time, paused_duration, paused_at,
                 std_items, keyword_group, max_results, incr, scan_only,
-                industries, provinces, changes, priority, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                industries, provinces, changes, priority, extra, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 task_id, task_type, status, progress, message, stats, sub_stats,
                 start_time, end_time, paused_duration, paused_at,
                 std_items, keyword_group, max_results, incr, scan_only,
-                industries, provinces, changes, priority, now, now
+                industries, provinces, changes, priority, extra, now, now
             ))
 
 
@@ -246,6 +267,7 @@ def save_task_light(task_id: str, task_data: Dict):
     provinces = json.dumps(task_data.get('provinces')) if task_data.get('provinces') else None
     changes = json.dumps(task_data.get('changes')) if task_data.get('changes') else None
     priority = task_data.get('priority', 0)
+    extra = _collect_extra(task_data)
 
     with _db_lock, conn:
         cursor = conn.cursor()
@@ -254,13 +276,13 @@ def save_task_light(task_id: str, task_data: Dict):
         SET task_type=?, status=?, progress=?, message=?, stats=?, sub_stats=?,
             start_time=?, end_time=?, paused_duration=?, paused_at=?,
             keyword_group=?, max_results=?, incr=?, scan_only=?,
-            industries=?, provinces=?, changes=?, priority=?, updated_at=?
+            industries=?, provinces=?, changes=?, priority=?, extra=?, updated_at=?
         WHERE id=?
         ''', (
             task_type, status, progress, message, stats, sub_stats,
             start_time, end_time, paused_duration, paused_at,
             keyword_group, max_results, incr, scan_only,
-            industries, provinces, changes, priority, now, task_id
+            industries, provinces, changes, priority, extra, now, task_id
         ))
 
 
@@ -424,6 +446,9 @@ def _row_to_task_dict(row: sqlite3.Row) -> Dict:
     task = dict(row)
     if 'id' in task and 'task_id' not in task:
         task['task_id'] = task['id']
+    # task_type 列存储的是 std_type；恢复为标准字段名，避免重启后任务失去类型
+    if 'task_type' in task and 'std_type' not in task:
+        task['std_type'] = task['task_type']
     if 'paused_duration' not in task:
         task['paused_duration'] = 0
     _json_load(task, 'stats')
@@ -432,6 +457,12 @@ def _row_to_task_dict(row: sqlite3.Row) -> Dict:
     _json_load(task, 'changes')
     _json_load(task, 'industries')
     _json_load(task, 'provinces')
+    _json_load(task, 'extra')
+    # extra 保存的是未显式建列的元数据（search_diag/scan_note/mem_sites/搜索参数等）
+    extra = task.pop('extra', None)
+    if isinstance(extra, dict):
+        for key, value in extra.items():
+            task.setdefault(key, value)
     if 'incr' in task:
         task['incr'] = bool(task['incr'])
     if 'scan_only' in task:
