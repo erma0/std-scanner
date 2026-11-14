@@ -34,25 +34,30 @@ class CopyrightError(Exception):
 def fetch_hb_list(industry='', key='', status=None, page=1, size=100):
     """调用行业标准列表 API
 
-    status: 字符串(单值)或 None(默认现行)。
-    网站仅支持 '现行'/'即将实施'/'废止'/''(全部)，其他值回退到 '现行'。
+    status: None(默认现行) / 字符串(单值) / 列表(多值) / ''(全部)。
+    网站仅支持 '现行'/'即将实施'/'废止'，其他值回退到 '现行'；
+    '' 表示全部状态（不发送 status[] 过滤条件，站点即返回全部）。
     """
     # 网站实际支持的状态值白名单
-    _VALID_STATUS = {'现行', '即将实施', '废止', ''}
-    if status:
+    _VALID_STATUS = {'现行', '即将实施', '废止'}
+    if status is None:
+        statuses = ['现行']
+    elif isinstance(status, str) and not status:
+        statuses = []  # 全部状态：不发送 status[]
+    else:
         statuses = status if isinstance(status, list) else [status]
         # 过滤掉网站不支持的状态值，回退到 '现行'
         statuses = [s for s in statuses if s in _VALID_STATUS] or ['现行']
-    else:
-        statuses = ['现行']
     params = {
         'current': page, 'size': size, 'key': key,
         'ministry': '', 'industry': industry,
         'pubdate': '', 'date': '',
     }
-    encoded = urlencode(params) + '&' + '&'.join(
-        f"status[]={urlencode({'v': s}).split('=', 1)[1]}" for s in statuses
-    )
+    encoded = urlencode(params)
+    if statuses:
+        encoded += '&' + '&'.join(
+            f"status[]={urlencode({'v': s}).split('=', 1)[1]}" for s in statuses
+        )
     resp = http_client.post(HB_API_URL, content=encoded.encode(), headers={
         'Accept': 'application/json, text/javascript, */*; q=0.01',
         'Referer': 'https://hbba.sacinfo.org.cn/stdList',

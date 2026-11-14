@@ -18,6 +18,9 @@ def fetch_db_list(province='', key='', status=None, page=1, size=100):
     DB 网站支持的状态: 现行/废止/''(全部)。
     '即将实施' 在 DB 网站不支持（DB 新标准发布即生效，无预告期），回退到 '现行'。
     """
+    # None 表示默认现行；'' 表示全部（不传 status 参数）
+    if status is None:
+        status = '现行'
     # DB 网站不支持 '即将实施'，回退到 '现行'
     if status == '即将实施':
         status = '现行'
@@ -30,8 +33,6 @@ def fetch_db_list(province='', key='', status=None, page=1, size=100):
         if isinstance(status, str) and ',' in status:
             status = status.split(',')[0]
         params['status'] = status
-    else:
-        params['status'] = '现行'
     encoded = urlencode(params)
     resp = http_client.post(DB_API_URL, content=encoded.encode(), headers={
         'Accept': 'application/json, text/javascript, */*; q=0.01',
