@@ -166,13 +166,21 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
                                  f"{type(e).__name__}: {e}")
 
             # 编号查询未命中时，用数字部分再搜一次（站点对完整编号的匹配不稳定）
+            # 完整编号未命中时只补一次检索：
+            # 1) 优先换前缀重试（GB→GB/T 等），因为站点检索对前缀敏感，
+            #    不换前缀取不回另一体系的同号同年条目；
+            # 2) 无可用纠错时退回纯数字编号搜索。
+            # 同一体系内"编号+年份"唯一，因此无需担心强制/推荐版本并存。
             if is_code_query and not standards and not is_engineering_standard(q):
-                if not await sleep_with_pause(task_manager, task_id, get_delay()):
-                    aborted = True
-                    break
                 info = parse_standard_code(q)
-                retry_q = (info['part'] + (f"-{info['year']}" if info['year'] else '')) if info else ''
+                alt_q = alternate_code_prefix(q) if (auto_correct_code and not is_tt) else ''
+                retry_q = alt_q
+                if not retry_q and info:
+                    retry_q = info['part'] + (f"-{info['year']}" if info['year'] else '')
                 if retry_q and retry_q != q.strip():
+                    if not await sleep_with_pause(task_manager, task_id, get_delay()):
+                        aborted = True
+                        break
                     try:
                         if is_tt:
                             retry_standards = await search_tt_standards(retry_q, per_query_max)
@@ -180,40 +188,22 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
                             retry_standards, retry_total = await loop.run_in_executor(
                                 None, fetch_stdpage_search, retry_q, 1, std_type)
                             site_total = max(site_total, retry_total)
-                        # 二次搜索才是真正拿到条目的请求，诊断须按它统计，
+                        # 补充检索才是真正拿到条目的请求，诊断须按它统计，
                         # 否则会出现"站点显示 1 条但页面未解析"的误报
                         raw_standards = retry_standards
                         raw_count = len(raw_standards)
-                        standards, _ = filter_standard_results(q, retry_standards, per_query_max)
-                        _log.info(f"  [{i+1}/{total}] '{q[:40]}' 完整编号未命中，"
-                                  f"改用 '{retry_q}' 二次搜索（站点 {len(retry_standards)} 条，"
-                                  f"编号匹配 {len(standards)} 条）")
+                        filter_q = alt_q or q
+                        standards, _ = filter_standard_results(filter_q, retry_standards, per_query_max)
+                        if alt_q:
+                            _log.info(f"  [{i+1}/{total}] '{q[:40]}' 未命中，编号纠错为 "
+                                      f"'{alt_q}'（站点 {len(retry_standards)} 条，"
+                                      f"匹配 {len(standards)} 条）")
+                        else:
+                            _log.info(f"  [{i+1}/{total}] '{q[:40]}' 完整编号未命中，"
+                                      f"改用 '{retry_q}' 二次搜索（站点 {len(retry_standards)} 条，"
+                                      f"编号匹配 {len(standards)} 条）")
                     except Exception as e:
-                        _log.warning(f"  [{i+1}/{total}] 按编号二次搜索 '{retry_q}' 失败: "
-                                     f"{type(e).__name__}: {e}")
-
-            # 编号纠错：原编号查不到时，在 强制/推荐（/T）前缀间切换重试，
-            # 如 GB↔GB/T、HB↔HB/T、DB11↔DB11/T；默认开启，可在设置中关闭。
-            # 工程建设号段已走住建部，不参与纠错
-            if (auto_correct_code and not is_tt and is_code_query
-                    and not standards and not is_engineering_standard(q)):
-                alt_q = alternate_code_prefix(q)
-                if alt_q:
-                    if not await sleep_with_pause(task_manager, task_id, get_delay()):
-                        aborted = True
-                        break
-                    try:
-                        alt_standards, alt_total = await loop.run_in_executor(
-                            None, fetch_stdpage_search, alt_q, 1, std_type)
-                        standards, _ = filter_standard_results(alt_q, alt_standards, per_query_max)
-                        if standards:
-                            raw_standards = alt_standards
-                            raw_count = len(alt_standards)
-                            site_total = max(site_total, alt_total)
-                            _log.info(f"  [{i+1}/{total}] '{q}' 未命中，编号纠错为 "
-                                      f"'{alt_q}'（匹配 {len(standards)} 条）")
-                    except Exception as e:
-                        _log.warning(f"  [{i+1}/{total}] 编号纠错 {alt_q or q} 失败: "
+                        _log.warning(f"  [{i+1}/{total}] 补充检索 '{retry_q}' 失败: "
                                      f"{type(e).__name__}: {e}")
 
             # 关键词命中的废止版本默认跳过；标准号查询保持原样（用户可能就是要旧版）
