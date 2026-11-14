@@ -63,7 +63,10 @@ def parse_standard_code(text):
 
 
 # 这些体系的编号不使用 /T 表示推荐性，套用会得到无意义的编号
-_NO_T_PREFIXES = {'JJF', 'JJG', 'TSG', 'CECS', 'GB/Z'}
+_NO_T_PREFIXES = {
+    'JJF', 'JJG', 'TSG', 'CECS', 'GB/Z',
+    'ISO', 'IEC', 'EN', 'ANSI', 'BS', 'DIN', 'JIS', 'NF', 'AS', 'ASTM',
+}
 
 
 def alternate_code_prefix(code):

@@ -148,6 +148,9 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
 
             # 站点每页 10 条，编号族较大时目标可能落在第 2 页（如 GB 30000.2）
             if not is_tt and is_code_query and not standards and site_total > raw_count > 0:
+                if not await sleep_with_pause(task_manager, task_id, get_delay()):
+                    aborted = True
+                    break
                 try:
                     more, more_total = await loop.run_in_executor(
                         None, fetch_stdpage_search, q, 2, std_type)
@@ -164,6 +167,9 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
 
             # 编号查询未命中时，用数字部分再搜一次（站点对完整编号的匹配不稳定）
             if is_code_query and not standards and not is_engineering_standard(q):
+                if not await sleep_with_pause(task_manager, task_id, get_delay()):
+                    aborted = True
+                    break
                 info = parse_standard_code(q)
                 retry_q = (info['part'] + (f"-{info['year']}" if info['year'] else '')) if info else ''
                 if retry_q and retry_q != q.strip():
@@ -189,9 +195,13 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
             # 编号纠错：原编号查不到时，在 强制/推荐（/T）前缀间切换重试，
             # 如 GB↔GB/T、HB↔HB/T、DB11↔DB11/T；默认开启，可在设置中关闭。
             # 工程建设号段已走住建部，不参与纠错
-            if auto_correct_code and is_code_query and not standards and not is_engineering_standard(q):
+            if (auto_correct_code and not is_tt and is_code_query
+                    and not standards and not is_engineering_standard(q)):
                 alt_q = alternate_code_prefix(q)
                 if alt_q:
+                    if not await sleep_with_pause(task_manager, task_id, get_delay()):
+                        aborted = True
+                        break
                     try:
                         alt_standards, alt_total = await loop.run_in_executor(
                             None, fetch_stdpage_search, alt_q, 1, std_type)
