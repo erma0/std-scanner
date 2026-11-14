@@ -70,25 +70,41 @@ def _resolve_site_pk(code, site_type):
 
     检索结果里的 pid 是 std.samr.gov.cn 的内部标识，与 hbba/dbba 的 pk 不同；
     详情页附件链接为空时必须用标准号回查真实 pk 才能下载。
+
+    回查要点（实测 2026-11）：
+      - 标准库的 key 是字面匹配，源站编号里的破折号多为全角 —，直接传带半角
+        "-年份" 的完整编号会查不到（如 JT/T 1565-2025 → 0 条），因此优先用
+        "前缀 + 编号"（去掉年份）检索，再按归一化编号精确比对；
+      - 废止标准只在全部状态下可见，必须传 '' 跨状态查询，否则永远查不到。
     """
     if not code:
         return None
     from app.helpers import normalize_code
-    try:
-        if site_type == 'hb':
-            from app.scanner.hb_scan import fetch_hb_list
-            records = fetch_hb_list(industry='', key=code, status='', page=1, size=20).get('records', [])
-        else:
-            from app.scanner.db_scan import fetch_db_list
-            records = fetch_db_list(province='', key=code, status='', page=1, size=20).get('records', [])
-    except Exception as e:
-        _log.warning(f"  [WARN] 回查 {site_type} 标准库失败: {code} {e}")
-        return None
+    from app.scanner.search import parse_standard_code
+
+    info = parse_standard_code(code)
+    keys = [f"{info['prefix']} {info['part']}"] if info and info['prefix'] else []
+    if code not in keys:
+        keys.append(code)
 
     target_code = normalize_code(code)
-    for r in records:
-        if normalize_code(r.get('code', '')) == target_code:
-            return r.get('pk')
+    records = []
+    for key in keys:
+        try:
+            if site_type == 'hb':
+                from app.scanner.hb_scan import fetch_hb_list
+                records = fetch_hb_list(
+                    industry='', key=key, status='', page=1, size=20).get('records', [])
+            else:
+                from app.scanner.db_scan import fetch_db_list
+                records = fetch_db_list(
+                    province='', key=key, status='', page=1, size=20).get('records', [])
+        except Exception as e:
+            _log.warning(f"  [WARN] 回查 {site_type} 标准库失败: {code} {e}")
+            continue
+        for r in records:
+            if normalize_code(r.get('code', '')) == target_code:
+                return r.get('pk')
     _log.warning(f"  [WARN] {site_type} 标准库未匹配编号: {code}（返回 {len(records)} 条）")
     return None
 
