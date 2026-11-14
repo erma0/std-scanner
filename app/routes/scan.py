@@ -42,6 +42,7 @@ class ScanAllRequest(BaseModel):
     db_config: dict = Field(default={}, description="地标额外配置")
     tt_config: dict = Field(default={}, description="团体标准额外配置（如 cnl1_codes）")
     mem_config: dict = Field(default={}, description="政策法规额外配置（含 site: mem/samr 与 source）")
+    mohurd_config: dict = Field(default={}, description="工程建设标准额外配置")
 
 
 def _check_max_results(keyword_group: str, max_results: int):
@@ -63,7 +64,7 @@ def _create_scan_task(scan_type, task_id_prefix, config, resume_task_id=None):
 
     Args:
         scan_type: 'gb' | 'hb' | 'db' | 'tt' | 'mem'
-        task_id_prefix: 任务 ID 前缀（gb/hb/db/tt/mem）
+        task_id_prefix: 任务 ID 前缀（gb/hb/db/tt/mem/mohurd）
         config: 扫描配置字典，含 max_results/incr/keyword_group/industries/provinces/cnl1_codes 等
         resume_task_id: 可选，恢复已有任务
     """
@@ -80,7 +81,8 @@ def _create_scan_task(scan_type, task_id_prefix, config, resume_task_id=None):
         else:
             type_label = _MEM_LABELS.get(config.get('site'), '应急管理部标准')
     else:
-        type_label = {'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准'}[scan_type]
+        type_label = {'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准',
+                      'tt': '团体标准', 'mohurd': '工程建设标准'}[scan_type]
 
     retry_config = {
         'keyword_group': config.get('keyword_group', '安全生产'),
@@ -329,12 +331,33 @@ async def scan_mem_standards_api(
     return _create_scan_task('mem', 'mem', config, resume_task_id=resume_task_id)
 
 
+@router.post("/api/scan/mohurd")
+async def scan_mohurd_standards_api(
+    max_results: int = 500,
+    scan_only: bool = False,
+    incr: bool = False,
+    resume_task_id: Optional[str] = None,
+    keyword_group: str = '安全生产',
+    std_state: str = '现行',
+):
+    """工程建设标准扫描（住建部标准公告，GB 50xxx–55xxx）。"""
+    _check_max_results(keyword_group, max_results)
+    config = {
+        'max_results': max_results,
+        'incr': incr,
+        'keyword_group': keyword_group,
+        'scan_only': scan_only,
+        'std_state': std_state,
+    }
+    return _create_scan_task('mohurd', 'mohurd', config, resume_task_id=resume_task_id)
+
+
 @router.post("/api/scan/all")
 async def scan_all_standards_api(body: ScanAllRequest):
-    valid_types = {'gb', 'hb', 'db', 'tt', 'mem'}
+    valid_types = {'gb', 'hb', 'db', 'tt', 'mem', 'mohurd'}
     scan_types = [t for t in body.types if t in valid_types]
     if not scan_types:
-        raise HTTPException(status_code=400, detail="types 参数必须包含 gb/hb/db/tt/mem 中的至少一个")
+        raise HTTPException(status_code=400, detail="types 参数必须包含 gb/hb/db/tt/mem/mohurd 中的至少一个")
     _check_max_results(body.keyword_group, body.max_results)
 
     task_ids, scan_fn = create_combined_scan_tasks(
@@ -343,6 +366,7 @@ async def scan_all_standards_api(body: ScanAllRequest):
         std_state=body.std_state, allow_preview=body.allow_preview,
         gb_config=body.gb_config, hb_config=body.hb_config, db_config=body.db_config,
         tt_config=body.tt_config, mem_config=body.mem_config,
+        mohurd_config=body.mohurd_config,
     )
     _launch_task(scan_fn(), "scan-combined")
     return {"success": True, "task_ids": task_ids}

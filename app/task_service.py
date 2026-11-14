@@ -202,6 +202,18 @@ async def retry_one_item(item, std_type, output_dir, existing):
         ok = item.get('dlStatus') == 'downloaded'
         return ok, item.get('dlStatus', 'failed'), item.get('failReason', '')
 
+    # === MOHURD：住建部公告附件 ===
+    if std_type == 'mohurd':
+        from app.scanner.mohurd_scan import _download_one_mohurd
+        try:
+            await _download_one_mohurd(item, existing)
+        except Exception as e:
+            item['dlStatus'] = 'failed'
+            item['failReason'] = f'{type(e).__name__}: {e}'
+            return False, 'failed', item['failReason']
+        ok = item.get('dlStatus') == 'downloaded'
+        return ok, item.get('dlStatus', 'failed'), item.get('failReason', '')
+
     item['dlStatus'] = 'failed'
     item['failReason'] = f'不支持的任务类型: {std_type}'
     return False, 'failed', item['failReason']

@@ -72,7 +72,7 @@ async def _resume_interrupted_task(task):
                          f"resume-download-{task_id}")
         return {"mode": "download", **result}
 
-    if std_type in ('gb', 'hb', 'db', 'tt', 'mem'):
+    if std_type in ('gb', 'hb', 'db', 'tt', 'mem', 'mohurd'):
         from app.task_service import resume_scan_download
         # 中断/失败在下载阶段：保留扫描结果，只补未完成的下载。
         # 进度 > 40 表示扫描阶段已结束（扫描占 0-40%，下载占 40-100%）。
@@ -97,7 +97,7 @@ def _restart_task(task):
     """按原参数创建全新任务（重新开始），返回接口响应。"""
     std_type = task.get('std_type')
 
-    if std_type in ('gb', 'hb', 'db', 'tt', 'mem'):
+    if std_type in ('gb', 'hb', 'db', 'tt', 'mem', 'mohurd'):
         result = _create_scan_task(std_type, std_type,
                                    _scan_config_from_task(task, std_type))
         return {"success": True, "new_task_id": result['task_id']}

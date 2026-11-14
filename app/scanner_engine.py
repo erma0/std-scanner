@@ -27,6 +27,7 @@ from app.scanner import (
     ScanErrorCollector,
     run_tt_pipeline,
     run_mem_pipeline,
+    run_mohurd_pipeline,
 )
 
 
@@ -67,6 +68,14 @@ async def run_scan_pipeline(
     # 应急管理部标准走独立管线（httpx 直连 HTML，无 WAF）
     if scan_type == 'mem':
         return await run_mem_pipeline(
+            config=config, task_id=task_id, task_manager=task_manager,
+            progress_base=progress_base, progress_per_scan=progress_per_scan,
+            progress_per_download=progress_per_download,
+        )
+
+    # 住建部工程建设标准走独立管线（公告页附件下载）
+    if scan_type == 'mohurd':
+        return await run_mohurd_pipeline(
             config=config, task_id=task_id, task_manager=task_manager,
             progress_base=progress_base, progress_per_scan=progress_per_scan,
             progress_per_download=progress_per_download,

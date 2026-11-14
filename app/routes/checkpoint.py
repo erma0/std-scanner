@@ -20,7 +20,7 @@ def _check_scan_running():
         return False
     try:
         running = task_manager.get_all(status_filter='running')
-        return any(t.get('std_type') in ('gb', 'hb', 'db', 'tt', 'mem') for t in running)
+        return any(t.get('std_type') in ('gb', 'hb', 'db', 'tt', 'mem', 'mohurd') for t in running)
     except Exception as e:
         _log.debug(f"检查扫描任务状态失败，按无运行处理: {e}")
         return False
@@ -63,7 +63,7 @@ async def get_checkpoint():
 
 @router.delete("")
 async def reset_checkpoint(
-    scan_type: str = Query(None, description="gb|hb|db|tt|mem，不传则重置全部"),
+    scan_type: str = Query(None, description="gb|hb|db|tt|mem|mohurd，不传则重置全部"),
     item: str = Query(None, description="行业代码/省份/mem ckpt_key（mem_bz_all|mem_gz_all|mem_samr_flfg_all|mem_samr_aqjsgf_all）"),
 ):
     """重置增量 checkpoint
@@ -80,10 +80,10 @@ async def reset_checkpoint(
     if _check_scan_running():
         raise HTTPException(status_code=409, detail="有扫描任务正在执行，请等待完成后再重置")
 
-    if scan_type is not None and scan_type not in ('gb', 'hb', 'db', 'tt', 'mem'):
+    if scan_type is not None and scan_type not in ('gb', 'hb', 'db', 'tt', 'mem', 'mohurd'):
         raise HTTPException(status_code=400, detail=f"无效的扫描类型: {scan_type}")
 
-    if scan_type in ('gb', 'tt') and item:
+    if scan_type in ('gb', 'tt', 'mohurd') and item:
         raise HTTPException(status_code=400, detail=f"{scan_type.upper()} 不支持 item 参数")
 
     ckpt = load_scan_checkpoint()

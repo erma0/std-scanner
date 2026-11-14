@@ -451,6 +451,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                     <button class="scan-tab" data-scan-type="mem">
                                         <i class="fa fa-shield mr-1.5 text-amber-600"></i>政策法规
                                     </button>
+                                    <button class="scan-tab" data-scan-type="mohurd">
+                                        <i class="fa fa-building mr-1.5 text-teal-600"></i>工程建设
+                                    </button>
                                     <button class="scan-tab active" data-scan-type="all">
                                         <i class="fa fa-refresh mr-1.5"></i>联合扫描
                                     </button>
@@ -604,6 +607,30 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                         <button id="mem-scan-btn" class="w-full success-btn text-white font-medium py-2.5 px-4 rounded-lg text-sm flex items-center justify-center">
                                             <i class="fa fa-play mr-2"></i>开始扫描政策法规
                                         </button>
+                                        <p class="text-xs text-gray-400">提示：应急管理部“标准文本”源不提供状态字段，选择“废止”或“即将实施”时结果可能为空。</p>
+                                    </div>
+                                </div>
+
+                                <div id="scan-mohurd-panel" class="scan-panel hidden">
+                                    <div class="space-y-4">
+                                        <div class="flex items-center gap-3 flex-wrap">
+                                            <label class="text-sm font-medium text-gray-700">采集</label>
+                                            <input type="number" id="mohurd-pages" value="500" min="1" max="10000" class="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-center">
+                                            <span class="text-sm text-gray-500">条</span>
+                                            <span class="text-gray-300 mx-1">|</span>
+                                            <span class="text-sm text-gray-600">状态</span>
+                                            <select id="mohurd-state" class="px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                                <option value="现行" selected>现行</option>
+                                                <option value="全部">全部</option>
+                                            </select>
+                                            <span class="text-gray-300 mx-1">|</span>
+                                            <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="mohurd-scan-only" class="w-4 h-4 text-blue-500 rounded mr-1.5">仅扫描</label>
+                                            <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="mohurd-incr" class="w-4 h-4 text-blue-500 rounded mr-1.5" checked>增量</label>
+                                        </div>
+                                        <button id="mohurd-scan-btn" class="w-full success-btn text-white font-medium py-2.5 px-4 rounded-lg text-sm flex items-center justify-center">
+                                            <i class="fa fa-play mr-2"></i>开始扫描工程建设标准
+                                        </button>
+                                        <p class="text-xs text-gray-400">来源：住建部“标准公告”，覆盖 GB 50xxx–55xxx 工程建设国家标准，公告附件即全文 PDF。</p>
                                     </div>
                                 </div>
 
@@ -713,6 +740,14 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                                             <span class="text-gray-400">·使用上方统一采集条数</span>
                                                         </div>
                                                     </div>
+                                                </div>
+                                            </div>
+
+                                            <div class="collapse-card flex items-start p-3 bg-teal-50 rounded-lg border border-teal-100">
+                                                <input type="checkbox" id="all-mohurd-check" class="w-4 h-4 text-teal-600 rounded mt-0.5 flex-shrink-0">
+                                                <div class="ml-3 flex-1">
+                                                    <span class="text-sm font-medium text-gray-800"><i class="fa fa-building mr-1.5 text-teal-600"></i>工程建设标准</span>
+                                                    <p class="text-xs text-gray-400 mt-0.5">住建部标准公告，使用上方统一采集条数</p>
                                                 </div>
                                             </div>
                                         </div>
@@ -1224,6 +1259,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             <option value="db">地方标准</option>
                             <option value="tt">团体标准</option>
                             <option value="mem">政策法规</option>
+                            <option value="mohurd">工程建设标准</option>
                             <option value="all">联合扫描</option>
                         </select>
                     </div>
@@ -1328,6 +1364,22 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                 <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="schedule-tt-scan-only" class="w-4 h-4 text-blue-500 rounded mr-1.5">仅扫描</label>
                                 <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="schedule-tt-incr" class="w-4 h-4 text-blue-500 rounded mr-1.5" checked>增量</label>
                             </div>
+                        </div>
+                    </div>
+                    <div id="schedule-mohurd-config" class="hidden">
+                        <div class="flex items-center gap-3 flex-wrap">
+                            <label class="text-sm font-medium text-gray-700">采集</label>
+                            <input type="number" id="schedule-mohurd-pages" value="500" min="1" max="10000" class="w-20 px-2 py-1.5 border border-gray-300 rounded text-sm text-center">
+                            <span class="text-sm text-gray-500">条</span>
+                            <span class="text-gray-300 mx-1">|</span>
+                            <span class="text-sm text-gray-600">状态</span>
+                            <select id="schedule-mohurd-state" class="px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                <option value="现行" selected>现行</option>
+                                <option value="全部">全部</option>
+                            </select>
+                            <span class="text-gray-300 mx-1">|</span>
+                            <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="schedule-mohurd-scan-only" class="w-4 h-4 text-blue-500 rounded mr-1.5">仅扫描</label>
+                            <label class="flex items-center cursor-pointer text-sm"><input type="checkbox" id="schedule-mohurd-incr" class="w-4 h-4 text-blue-500 rounded mr-1.5" checked>增量</label>
                         </div>
                     </div>
                     <div id="schedule-mem-config" class="hidden">
@@ -1437,6 +1489,14 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                                 <button type="button" id="schedule-all-tt-clear" class="px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded-full hover:bg-red-200 transition-colors" onclick="event.stopPropagation()">清空</button>
                                             </div>
                                         </div>
+                                    </div>
+                                </div>
+
+                                <div class="collapse-card flex items-start p-3 bg-teal-50 rounded-lg border border-teal-100">
+                                    <input type="checkbox" id="schedule-all-mohurd-check" class="w-4 h-4 text-teal-600 rounded mt-0.5 flex-shrink-0">
+                                    <div class="ml-3 flex-1">
+                                        <span class="text-sm font-medium text-gray-800"><i class="fa fa-building mr-1.5 text-teal-600"></i>工程建设标准</span>
+                                        <div class="text-xs text-gray-400 mt-0.5">住建部标准公告，使用上方统一采集条数</div>
                                     </div>
                                 </div>
 
@@ -2395,6 +2455,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             html += renderDbCard(ckpt.db || null);
             html += renderTtCard(ckpt.tt || null);
             html += renderMemCard(ckpt.mem || null);
+            html += renderMohurdCard(ckpt.mohurd || null);
 
             container.innerHTML = html;
 
@@ -2554,6 +2615,28 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             </div>
                         </div>
                     `).join('')
+                    : `<p class="text-xs text-gray-400 dark:text-gray-500">暂无记录，执行增量扫描后显示</p>`}
+            </div>`;
+        }
+
+        function renderMohurdCard(m) {
+            const hasData = !!m;
+            return `
+            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="font-medium text-sm text-gray-800 dark:text-gray-200 flex items-center">
+                        <i class="fa fa-building mr-2 text-teal-600"></i>工程建设标准 (MOHURD)
+                    </h3>
+                    ${hasData ? `<button data-ckpt-reset="mohurd" data-ckpt-label="工程建设标准(MOHURD)" class="text-xs bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-500 dark:text-red-400 px-2.5 py-1 rounded-lg transition-colors"><i class="fa fa-undo mr-1"></i>重置</button>` : ''}
+                </div>
+                ${hasData
+                    ? `<div class="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
+                        <div class="flex items-center gap-4">
+                            <span>增量起点: <span class="font-mono text-teal-600 dark:text-teal-400">${m.first_name ? escapeHtml(m.first_name) : m.first_id || '--'}</span></span>
+                            <span>已采集: <span class="font-semibold text-teal-600 dark:text-teal-400">${m.count || 0}</span> 条</span>
+                        </div>
+                        <span class="text-xs text-gray-400 dark:text-gray-500">${m.updatedAt || ''}</span>
+                    </div>`
                     : `<p class="text-xs text-gray-400 dark:text-gray-500">暂无记录，执行增量扫描后显示</p>`}
             </div>`;
         }
@@ -3297,6 +3380,35 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 }
             });
 
+            // 工程建设标准（住建部公告）
+            document.getElementById('mohurd-scan-btn').addEventListener('click', async () => {
+                const btn = document.getElementById('mohurd-scan-btn');
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i>处理中...';
+                try {
+                    const params = new URLSearchParams();
+                    params.set('max_results', parseInt(document.getElementById('mohurd-pages').value) || 500);
+                    params.set('scan_only', document.getElementById('mohurd-scan-only').checked);
+                    params.set('incr', document.getElementById('mohurd-incr').checked);
+                    params.set('keyword_group', kwCurrentGroup);
+                    params.set('std_state', document.getElementById('mohurd-state').value);
+                    const resp = await fetch(`${API_BASE}/scan/mohurd?${params.toString()}`, { method: 'POST' });
+                    const result = await resp.json();
+                    if (result.success) {
+                        showToast('扫描已启动', 'success');
+                        navigateToPage('tasks');
+                        setTimeout(() => toggleTaskExpand(result.task_id), 500);
+                    } else {
+                        showToast('启动失败: ' + (result.detail || result.message || '未知错误'), 'error');
+                    }
+                } catch (e) {
+                    showToast('失败: ' + (e.message || String(e)), 'error');
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa fa-play mr-2"></i>开始扫描工程建设标准';
+                }
+            });
+
             // 初始渲染 CCS 标签
             renderTtCnlTags('tt-cnl-tags', selectedTtCnlCodes);
             renderTtCnlTags('all-tt-cnl-tags', allTtCnlCodes);
@@ -3589,6 +3701,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 const dbChecked = document.getElementById('all-db-check').checked;
                 const ttChecked = document.getElementById('all-tt-check').checked;
                 const memChecked = document.getElementById('all-mem-check').checked;
+                const mohurdChecked = document.getElementById('all-mohurd-check').checked;
                 const scanOnly = document.getElementById('all-scan-only').checked;
 
                 const scanTypes = [];
@@ -3597,6 +3710,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 if (dbChecked) scanTypes.push('db');
                 if (ttChecked) scanTypes.push('tt');
                 if (memChecked) scanTypes.push('mem');
+                if (mohurdChecked) scanTypes.push('mohurd');
 
                 if (scanTypes.length === 0) {
                     showToast('请至少选择一种标准类型', 'warning');
@@ -3645,7 +3759,8 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             hb_config: hbConfig,
                             db_config: dbConfig,
                             tt_config: ttConfig,
-                            mem_config: memConfig
+                            mem_config: memConfig,
+                            mohurd_config: {}
                         })
                     });
                     const result = await resp.json();
@@ -3664,7 +3779,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
         }
 
         function getTaskTitle(task) {
-            const typeNames = { 'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准', 'mem': '政策法规', 'search': '搜索下载', 'search_batch': '批量搜索下载' };
+            const typeNames = { 'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准', 'mem': '政策法规', 'mohurd': '工程建设标准', 'search': '搜索下载', 'search_batch': '批量搜索下载' };
             let base = typeNames[task.std_type] || '标准';
             // mem 类型按 site 区分（多站点用 + 合并显示）
             if (task.std_type === 'mem') {
@@ -5471,7 +5586,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     return;
                 }
 
-                const typeNames = { 'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准', 'mem': '政策法规', 'all': '联合扫描' };
+                const typeNames = { 'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准', 'mem': '政策法规', 'mohurd': '工程建设标准', 'all': '联合扫描' };
                 // mem 类型按 site 区分显示（多站点用 + 合并）
                 const memLabel = (job) => {
                     if (job.type !== 'mem') return typeNames[job.type];
@@ -5594,6 +5709,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             document.getElementById('schedule-all-hb-check').checked = true;
             document.getElementById('schedule-all-db-check').checked = true;
             document.getElementById('schedule-all-tt-check').checked = false;
+            document.getElementById('schedule-all-mohurd-check').checked = false;
             document.getElementById('schedule-all-mem-check').checked = false;
             scheduleFreq = 'daily';
             scheduleWeekdays = [1];
@@ -5658,6 +5774,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             document.getElementById('schedule-tt-pages').value = config.max_results || 200;
                             scheduleTtCnlCodes = Array.isArray(config.cnl1_codes) ? [...config.cnl1_codes] : [];
                             applyCommon('tt');
+                        } else if (job.type === 'mohurd') {
+                            document.getElementById('schedule-mohurd-pages').value = config.max_results || 500;
+                            applyCommon('mohurd');
                         } else if (job.type === 'mem') {
                             document.getElementById('schedule-mem-pages').value = config.max_results || 500;
                             // 回填 chips：优先用 mem_sites，回退单 site 字段
@@ -5676,6 +5795,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                             document.getElementById('schedule-all-hb-check').checked = scanTypes.includes('hb');
                             document.getElementById('schedule-all-db-check').checked = scanTypes.includes('db');
                             document.getElementById('schedule-all-tt-check').checked = scanTypes.includes('tt');
+                            document.getElementById('schedule-all-mohurd-check').checked = scanTypes.includes('mohurd');
                             document.getElementById('schedule-all-mem-check').checked = scanTypes.includes('mem');
                             document.getElementById('schedule-all-max-results').value = config.max_results || 500;
                             // 回填 chips：优先用 mem_sites，回退单 site 字段
@@ -5709,6 +5829,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             document.getElementById('schedule-hb-config').classList.toggle('hidden', type !== 'hb');
             document.getElementById('schedule-db-config').classList.toggle('hidden', type !== 'db');
             document.getElementById('schedule-tt-config').classList.toggle('hidden', type !== 'tt');
+            document.getElementById('schedule-mohurd-config').classList.toggle('hidden', type !== 'mohurd');
             document.getElementById('schedule-mem-config').classList.toggle('hidden', type !== 'mem');
             document.getElementById('schedule-all-config').classList.toggle('hidden', type !== 'all');
             if (type === 'tt') {
@@ -5900,6 +6021,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 config.max_results = parseInt(document.getElementById('schedule-tt-pages').value) || 200;
                 config.cnl1_codes = scheduleTtCnlCodes.length > 0 ? [...scheduleTtCnlCodes] : null;
                 readCommon('tt');
+            } else if (type === 'mohurd') {
+                config.max_results = parseInt(document.getElementById('schedule-mohurd-pages').value) || 500;
+                readCommon('mohurd');
             } else if (type === 'mem') {
                 config.max_results = parseInt(document.getElementById('schedule-mem-pages').value) || 500;
                 const memSites = collectMemSitesFromChips('schedule-mem-source-chips');
@@ -5920,6 +6044,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 if (document.getElementById('schedule-all-hb-check').checked) scanTypes.push('hb');
                 if (document.getElementById('schedule-all-db-check').checked) scanTypes.push('db');
                 if (document.getElementById('schedule-all-tt-check').checked) scanTypes.push('tt');
+                if (document.getElementById('schedule-all-mohurd-check').checked) scanTypes.push('mohurd');
                 if (document.getElementById('schedule-all-mem-check').checked) scanTypes.push('mem');
                 config.scan_types = scanTypes;
                 config.max_results = parseInt(document.getElementById('schedule-all-max-results').value) || 500;

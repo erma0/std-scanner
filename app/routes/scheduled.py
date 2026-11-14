@@ -89,7 +89,9 @@ async def _do_scheduled_scan_impl(scan_type, max_results, keyword_group, job_cfg
             if not tk:
                 fail_types.append(f"{tid}:任务丢失")
                 continue
-            label = {'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准', 'mem': '应急管理部标准'}.get(tk.get('std_type', ''), tk.get('std_type'))
+            label = {'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准',
+                     'tt': '团体标准', 'mem': '应急管理部标准',
+                     'mohurd': '工程建设标准'}.get(tk.get('std_type', ''), tk.get('std_type'))
             # mem 类型按 site 区分标签（多站点用 + 合并）
             if tk.get('std_type') == 'mem':
                 _MEM_LABELS = {'mem': '应急管理部标准', 'samr': '市场监管总局法规'}

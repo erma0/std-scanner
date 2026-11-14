@@ -13,6 +13,7 @@
   tt_scan    - scan_tt_standards, download_tt_standards, run_tt_pipeline (团体标准, httpx 直连 cms-proxy API)
   mem_scan   - scan_mem_standards, download_mem_standards, run_mem_pipeline (应急管理部标准, httpx 直连 HTML)
   samr_scan  - scan_samr_standards, download_samr_standards, run_samr_pipeline (市场监管总局政策法规, httpx 直连 jpaas API)
+  mohurd_scan - scan_mohurd_standards, download_mohurd_standards, run_mohurd_pipeline (住建部工程建设标准公告)
   quick      - quick_download, quick_download_web, generate_report, main
   change_tracker - compare_snapshot
 """
@@ -60,6 +61,10 @@ _SUBMODULE_MAP = {
     'scan_samr_standards': 'app.scanner.samr_scan',
     'download_samr_standards': 'app.scanner.samr_scan',
     'run_samr_pipeline': 'app.scanner.samr_scan',
+    'scan_mohurd_standards': 'app.scanner.mohurd_scan',
+    'download_mohurd_standards': 'app.scanner.mohurd_scan',
+    'run_mohurd_pipeline': 'app.scanner.mohurd_scan',
+    'find_mohurd_standard': 'app.scanner.mohurd_scan',
     'quick_download': 'app.scanner.quick',
     'quick_download_web': 'app.scanner.quick',
     'generate_report': 'app.scanner.quick',

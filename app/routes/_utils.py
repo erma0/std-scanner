@@ -44,8 +44,9 @@ def _mem_task_fields(scan_type, mem_config):
 def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
                                 scan_only, gb_config=None, hb_config=None,
                                 db_config=None, tt_config=None, mem_config=None,
+                                mohurd_config=None,
                                 allow_preview=None, std_state='现行'):
-    """创建联合扫描任务（GB+HB+DB+TT+MEM）— 每个类型独立任务，asyncio.gather 并发执行。
+    """创建联合扫描任务（GB+HB+DB+TT+MEM+MOHURD）— 每个类型独立任务，asyncio.gather 并发执行。
 
     供 scan_all / retry_all / 定时扫描复用。
 
@@ -67,9 +68,12 @@ def create_combined_scan_tasks(scan_types, max_results, incr, keyword_group,
         'db': {'config': db_config or {}},
         'tt': {'config': tt_config or {}},
         'mem': {'config': mem_config or {}},
+        'mohurd': {'config': mohurd_config or {}},
     }
 
-    _type_label = {'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准', 'tt': '团体标准', 'mem': '应急管理部标准'}
+    _type_label = {'gb': '国家标准', 'hb': '行业标准', 'db': '地方标准',
+                   'tt': '团体标准', 'mem': '应急管理部标准',
+                   'mohurd': '工程建设标准'}
 
     task_ids = []
     for st in scan_types:
