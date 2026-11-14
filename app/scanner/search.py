@@ -61,6 +61,24 @@ def parse_standard_code(text):
     return None
 
 
+def alternate_code_prefix(code):
+    """GB ↔ GB/T 纠错：返回同号同年的另一前缀编号，无法推导时返回 ''。
+
+    仅处理 GB 系列（用户最常把 GB/T 写成 GB），要求带年份，避免误配到其他版本。
+    """
+    info = parse_standard_code(code)
+    if not info or not info.get('year'):
+        return ''
+    prefix = info['prefix']
+    if prefix == 'GB':
+        alt = 'GB/T'
+    elif prefix == 'GB/T':
+        alt = 'GB'
+    else:
+        return ''
+    return f"{alt} {info['part']}-{info['year']}"
+
+
 def filter_standard_results(query, standards, max_results=None):
     """按搜索词意图过滤结果，返回 (items, is_code_query)。
 

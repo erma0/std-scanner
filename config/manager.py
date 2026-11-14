@@ -49,6 +49,10 @@ DEFAULT_CONFIG = {
         "retention_hours": 168,     # 已完成/失败任务保留时长（小时），默认 7 天
         "max_tasks": 200,           # 任务总数上限，超出时清理最旧的
     },
+    "search": {
+        # 编号纠错：GB 查不到时自动改用同号同年的 GB/T（反之亦然）
+        "auto_correct_code": True,
+    },
     # 行业/省份默认为空，运行时由 keywords.py 的 PRESET_GROUP 填充
     "keyword_groups": {
         "安全生产": {

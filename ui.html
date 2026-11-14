@@ -968,6 +968,15 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                             <p class="text-xs text-gray-400 mt-0.5" id="preview-status-text">需要安装 playwright；仅对有预览按钮但无下载按钮的国标生效</p>
                                         </div>
                                     </div>
+                                    <div class="flex items-center gap-3 mb-3">
+                                        <div class="toggle active" id="auto-correct-toggle" onclick="toggleAutoCorrect()">
+                                            <div class="toggle-dot"></div>
+                                        </div>
+                                        <div>
+                                            <span class="text-sm text-gray-700">编号纠错</span>
+                                            <p class="text-xs text-gray-400 mt-0.5" id="auto-correct-status-text">GB 查不到时自动改用同号同年的 GB/T（反之亦然）</p>
+                                        </div>
+                                    </div>
                                     <div class="grid grid-cols-2 gap-3">
                                         <div>
                                             <label class="block text-xs text-gray-500 mb-1">请求间隔（秒）</label>
@@ -1554,7 +1563,8 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             dingtalk: false,
             local: true,
             'save-log': false,
-            'auto-save': true
+            'auto-save': true,
+            'auto-correct': true
         };
 
         let confirmCallback = null;
@@ -2064,6 +2074,21 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             if (el) el.dispatchEvent(new Event('change'));
         }
 
+        function toggleAutoCorrect() {
+            toggleSwitch('auto-correct');
+            updateAutoCorrectText();
+            const el = document.getElementById('delay');
+            if (el) el.dispatchEvent(new Event('change'));
+        }
+
+        function updateAutoCorrectText() {
+            const text = document.getElementById('auto-correct-status-text');
+            if (!text) return;
+            text.textContent = toggleStates['auto-correct']
+                ? '已启用；GB 查不到时自动改用同号同年的 GB/T（反之亦然）'
+                : '已禁用；编号不匹配时不做自动替换';
+        }
+
         function updatePreviewToggle() {
             const toggle = document.getElementById('allow-preview-toggle');
             const statusText = document.getElementById('preview-status-text');
@@ -2163,6 +2188,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 const dl = config.download || {};
                 const log = config.logging || {};
                 const tasksConfig = config.tasks || {};
+                const searchConfig = config.search || {};
                 const notif = config.notifications || {};
 
                 document.getElementById('delay').value = dl.delay || 3;
@@ -2174,6 +2200,12 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                 // allow_preview toggle
                 toggleStates['allow-preview'] = dl.allow_preview !== false;
                 updatePreviewToggle();
+
+                // 编号纠错 toggle
+                toggleStates['auto-correct'] = searchConfig.auto_correct_code !== false;
+                document.getElementById('auto-correct-toggle')
+                    .classList.toggle('active', toggleStates['auto-correct']);
+                updateAutoCorrectText();
 
                 // 自动将输出目录加入去重列表
                 if (dl.output_dir && !existingDirs.includes(dl.output_dir)) {
@@ -5362,6 +5394,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                         tasks: {
                             auto_save: toggleStates['auto-save'],
                             save_interval: parseInt(document.getElementById('save-interval').value)
+                        },
+                        search: {
+                            auto_correct_code: toggleStates['auto-correct']
                         }
                     };
                     try {

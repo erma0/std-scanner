@@ -79,9 +79,11 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
     TT（团体标准）用 detail_id。
     """
     from app.scanner import fetch_stdpage_search, check_downloadable, search_tt_standards
-    from app.scanner.search import filter_standard_results, parse_standard_code
+    from app.scanner.search import (
+        alternate_code_prefix, filter_standard_results, parse_standard_code)
     from app.scanner.search_diag import SearchBatchDiag, is_engineering_standard
     from app.scanner.mohurd_scan import find_mohurd_standard
+    from config.manager import load_config
     from app.scanner.utils import compute_download_stats, make_filename
     from app.dedup import get_existing_files
     from config.settings import DETAIL_URL, get_delay
@@ -95,6 +97,7 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
     # 搜索阶段先做本地去重：已有文件的条目直接标记，后续不再尝试下载
     existing = await loop.run_in_executor(None, get_existing_files)
     diag = SearchBatchDiag(total, seed=diag_seed)
+    auto_correct_code = bool(load_config().get('search', {}).get('auto_correct_code', True))
     aborted = False
 
     for offset, q in enumerate(queries):
@@ -181,6 +184,25 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
                                   f"编号匹配 {len(standards)} 条）")
                     except Exception as e:
                         _log.warning(f"  [{i+1}/{total}] 按编号二次搜索 '{retry_q}' 失败: "
+                                     f"{type(e).__name__}: {e}")
+
+            # 编号纠错：GB 查不到时尝试同号同年的 GB/T（反之亦然），
+            # 默认开启，可在设置中关闭；工程建设号段已走住建部，不参与纠错
+            if auto_correct_code and is_code_query and not standards and not is_engineering_standard(q):
+                alt_q = alternate_code_prefix(q)
+                if alt_q:
+                    try:
+                        alt_standards, alt_total = await loop.run_in_executor(
+                            None, fetch_stdpage_search, alt_q, 1, std_type)
+                        standards, _ = filter_standard_results(alt_q, alt_standards, per_query_max)
+                        if standards:
+                            raw_standards = alt_standards
+                            raw_count = len(alt_standards)
+                            site_total = max(site_total, alt_total)
+                            _log.info(f"  [{i+1}/{total}] '{q}' 未命中，编号纠错为 "
+                                      f"'{alt_q}'（匹配 {len(standards)} 条）")
+                    except Exception as e:
+                        _log.warning(f"  [{i+1}/{total}] 编号纠错 {alt_q or q} 失败: "
                                      f"{type(e).__name__}: {e}")
 
             # 关键词命中的废止版本默认跳过；标准号查询保持原样（用户可能就是要旧版）
