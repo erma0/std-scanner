@@ -100,7 +100,7 @@ def site_uncovered_note(query):
     if not info or info['prefix'] not in _SITE_UNCOVERED_PREFIXES:
         return ''
     return (f'{info["prefix"]} 系列不在该检索库（站点会把 GBZ 归一成 GB/Z，'
-            f'返回的是同号但无关的标准）')
+            f'返回的是同号但无关的标准），需到卫健委标准网查询')
 
 
 def other_year_versions(query, standards, limit=2):
