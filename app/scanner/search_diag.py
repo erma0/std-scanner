@@ -28,6 +28,7 @@ KIND_LABELS = {
     'unparsed': '页面未解析',
     'no_result': '站点无结果',
     'mismatch': '编号不匹配',
+    'uncovered': '站点未收录',
     'duplicate': '重复',
     'existing': '本地已有',
     'unavailable': '不可下载',
@@ -89,8 +90,12 @@ class SearchBatchDiag:
 
     def record(self, query, raw=0, matched=0, added=0, duplicate=0,
                existing=0, unavailable=0, obsolete=0, site_total=0,
-               error='', sample_codes=None):
-        """记录一次查询，返回本次查询的可读原因（有新增时为空字符串）。"""
+               error='', sample_codes=None, note='', kind_override=''):
+        """记录一次查询，返回本次查询的可读原因（有新增时为空字符串）。
+
+        note: 附加说明（如"站点仅2024版"），追加在原因之后；
+        kind_override: 显式指定 0 新增的原因分类（如 uncovered）。
+        """
         self.done += 1
         self.raw_total += raw
         self.matched_total += matched
@@ -116,8 +121,10 @@ class SearchBatchDiag:
 
         reason = self._reason(raw, matched, added, duplicate, existing,
                               unavailable, obsolete, site_total, error, sample_codes)
-        kind = self._kind(raw, matched, added, duplicate, existing,
-                          unavailable, obsolete, site_total, error)
+        if note:
+            reason = f'{reason}；{note}' if reason else note
+        kind = (kind_override or self._kind(raw, matched, added, duplicate, existing,
+                                            unavailable, obsolete, site_total, error))
         if kind in ('no_result', 'mismatch', 'unparsed') and is_engineering_standard(query):
             reason += '（工程建设国家标准不在该检索库）'
         self.last = {

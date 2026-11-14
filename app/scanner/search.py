@@ -89,6 +89,41 @@ def alternate_code_prefix(code):
     return f"{alt} {info['part']}{suffix}"
 
 
+# 国标检索库不收录 GBZ（职业卫生）系列：站点会把 GBZ 归一成 GB/Z，
+# 返回同号但无关的标准，容易被误判成"旧版已被新版替代"
+_SITE_UNCOVERED_PREFIXES = {'GBZ', 'GBZ/T'}
+
+
+def site_uncovered_note(query):
+    """编号体系不在检索站点收录范围时返回说明，否则空字符串。"""
+    info = parse_standard_code(query)
+    if not info or info['prefix'] not in _SITE_UNCOVERED_PREFIXES:
+        return ''
+    return (f'{info["prefix"]} 系列不在该检索库（站点会把 GBZ 归一成 GB/Z，'
+            f'返回的是同号但无关的标准）')
+
+
+def other_year_versions(query, standards, limit=2):
+    """同前缀同编号、仅年份不同的结果描述（用于提示站点的其他版本）。
+
+    仅在查询指定了年份时返回，避免把"未指定年份"的正常匹配误报成版本差异。
+    """
+    info = parse_standard_code(query)
+    if not info or not info['prefix'] or not info['year']:
+        return []
+    out = []
+    for s in standards:
+        si = parse_standard_code(s.get('code', ''))
+        if not si or si['prefix'] != info['prefix'] or si['year'] == info['year']:
+            continue
+        if si['part'] != info['part'] and not si['part'].startswith(info['part'] + '.'):
+            continue
+        label = f"{s.get('code')}（{s.get('status') or '状态未知'}）"
+        if label not in out:
+            out.append(label)
+    return out[:limit]
+
+
 def filter_standard_results(query, standards, max_results=None):
     """按搜索词意图过滤结果，返回 (items, is_code_query)。
 

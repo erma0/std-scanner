@@ -80,7 +80,8 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
     """
     from app.scanner import fetch_stdpage_search, check_downloadable, search_tt_standards
     from app.scanner.search import (
-        alternate_code_prefix, filter_standard_results, parse_standard_code)
+        alternate_code_prefix, filter_standard_results, parse_standard_code,
+        site_uncovered_note, other_year_versions)
     from app.scanner.search_diag import SearchBatchDiag, is_engineering_standard
     from app.scanner.mohurd_scan import find_mohurd_standard
     from config.manager import load_config
@@ -139,12 +140,17 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
         standards = list(raw_standards)
         is_code_query = False
         obsolete_this = 0
+        note, kind_override = '', ''
 
         if not query_error:
             if exact_match:
                 standards, is_code_query = filter_standard_results(q, standards, per_query_max)
             else:
                 standards = standards[:per_query_max]
+
+            # 检索站点未收录的编号体系（如 GBZ）：前缀纠错只会取回同号无关结果，
+            # 直接跳过补充检索，避免把 GB/Z 误判为"新版"
+            coverage_note = site_uncovered_note(q) if is_code_query else ''
 
             # 站点每页 10 条，编号族较大时目标可能落在第 2 页（如 GB 30000.2）
             if not is_tt and is_code_query and not standards and site_total > raw_count > 0:
@@ -171,7 +177,8 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
             #    不换前缀取不回另一体系的同号同年条目；
             # 2) 无可用纠错时退回纯数字编号搜索。
             # 同一体系内"编号+年份"唯一，因此无需担心强制/推荐版本并存。
-            if is_code_query and not standards and not is_engineering_standard(q):
+            if is_code_query and not standards and not is_engineering_standard(q) \
+                    and not coverage_note:
                 info = parse_standard_code(q)
                 alt_q = alternate_code_prefix(q) if (auto_correct_code and not is_tt) else ''
                 retry_q = alt_q
@@ -212,6 +219,15 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
                 obsolete_this = len(standards) - len(kept)
                 obsolete_skipped += obsolete_this
                 standards = kept
+
+            # 未命中时解释原因：体系未收录 / 站点只有其他年份版本（不自动替代）
+            if is_code_query and not standards:
+                if coverage_note:
+                    note, kind_override = coverage_note, 'uncovered'
+                else:
+                    others = other_year_versions(q, raw_standards)
+                    if others:
+                        note = '站点无该年份版本，仅有 ' + '、'.join(others)
 
         matched_count = len(standards)
         added = duplicate = existing_count = unavailable = 0
@@ -303,7 +319,8 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
                              duplicate=duplicate, existing=existing_count,
                              unavailable=unavailable, obsolete=obsolete_this,
                              site_total=site_total, error=query_error,
-                             sample_codes=[s.get('code', '') for s in raw_standards[:3]])
+                             sample_codes=[s.get('code', '') for s in raw_standards[:3]],
+                             note=note, kind_override=kind_override)
 
         # 每个查询输出一行可读日志：站点返回多少、匹配多少、为什么没有新增
         if query_error:

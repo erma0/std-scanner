@@ -3,7 +3,8 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.scanner.search import alternate_code_prefix, parse_standard_code
+from app.scanner.search import (
+    alternate_code_prefix, parse_standard_code, other_year_versions, site_uncovered_note)
 
 
 class TestAlternateCodePrefix:
@@ -34,3 +35,15 @@ class TestCompactParse:
     def test_compact(self):
         assert parse_standard_code('GB50016-2014') == {
             'prefix': 'GB', 'part': '50016', 'year': '2014'}
+
+
+class TestSiteCoverage:
+    def test_uncovered_family(self):
+        assert '不在该检索库' in site_uncovered_note('GBZ/T 325-2022')
+        assert site_uncovered_note('GB/T 325-2022') == ''
+
+    def test_other_year_versions(self):
+        items = [{'code': 'GB/T 1234-2024', 'status': '现行'},
+                 {'code': 'GB/Z 1234-2024', 'status': '现行'}]
+        assert other_year_versions('GB/T 1234-2015', items) == ['GB/T 1234-2024（现行）']
+        assert other_year_versions('GB/T 1234', items) == []

@@ -30,6 +30,13 @@ class TestSearchBatchDiag:
         assert d.hit_queries == 1 and d.matched_total == 0
         assert d.zero_samples[0]['kind'] == 'mismatch'
 
+    def test_note_and_kind_override(self):
+        d = SearchBatchDiag(1)
+        reason = d.record('GBZ/T 325-2022', raw=10, matched=0,
+                          note='GBZ 系列不在该检索库', kind_override='uncovered')
+        assert 'GBZ 系列不在该检索库' in reason
+        assert d.zero_samples[0]['kind'] == 'uncovered'
+
     def test_added_reason_empty(self):
         d = SearchBatchDiag(1)
         reason = d.record('消防', raw=20, matched=10, added=3,

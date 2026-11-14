@@ -4837,8 +4837,9 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
 
         const _DIAG_KIND_LABELS = {
             error: '请求异常', unparsed: '页面未解析', no_result: '站点无结果',
-            mismatch: '编号不匹配', duplicate: '重复', existing: '本地已有',
-            unavailable: '不可下载', obsolete: '废止', other: '其他'
+            mismatch: '编号不匹配', uncovered: '站点未收录', duplicate: '重复',
+            existing: '本地已有', unavailable: '不可下载', obsolete: '废止',
+            other: '其他'
         };
 
         function _searchDiagKindLabel(kind) {
@@ -4853,7 +4854,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             const tid = task.task_id;
             const counts = d.kind_counts || {};
             const opts = Object.keys(_DIAG_KIND_LABELS)
-                .filter(k => counts[k] > 0)
+                .filter(k => k !== 'uncovered' && counts[k] > 0)
                 .map(k => `<option value="${k}">${_DIAG_KIND_LABELS[k]}（${counts[k]}）</option>`)
                 .join('');
             const sel = opts ? `<select class="detail-search-diag-kind text-[11px] border border-gray-200 rounded px-1 py-0.5 bg-white text-gray-600">
