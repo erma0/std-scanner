@@ -65,6 +65,7 @@ async def scan_pages(max_results=500, incr=False, keyword_group=None, on_progres
 
     hit_checkpoint = False
     ended = False
+    page_failed = False
     p = 0  # 初始化，避免 max_results=0 时循环不执行导致下方引用未定义
     for p in range(1, page_limit + 1):
         if check_pause:
@@ -79,6 +80,7 @@ async def scan_pages(max_results=500, incr=False, keyword_group=None, on_progres
                 on_error(p, e)
             else:
                 _log.warning(f"第{p}页请求失败: {e}, 跳过")
+            page_failed = True
             await asyncio.sleep(get_delay() * 2)
             continue
 
@@ -149,10 +151,14 @@ async def scan_pages(max_results=500, incr=False, keyword_group=None, on_progres
         await asyncio.sleep(get_delay())
 
     # 增量追扫触达页数上限且未命中上次位置：不推进 checkpoint，避免漏扫
-    ckpt_blocked = bool(incr and last_first_id and not hit_checkpoint and not ended)
+    ckpt_blocked = bool(page_failed or (
+        incr and last_first_id and not hit_checkpoint and not ended))
     if ckpt_blocked:
-        _log.warning(f"[GB] 增量扫描超过 {page_limit} 页仍未命中上次位置，"
-                     f"checkpoint 未推进，建议提高 max_results")
+        if page_failed:
+            _log.warning("[GB] 存在请求失败页，本次 checkpoint 未推进")
+        else:
+            _log.warning(f"[GB] 增量扫描超过 {page_limit} 页仍未命中上次位置，"
+                         f"checkpoint 未推进，建议提高 max_results")
 
     # 最终保存 checkpoint
     if all_standards and not ckpt_blocked:

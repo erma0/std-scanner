@@ -59,6 +59,24 @@ def test_hard_cap_does_not_advance_checkpoint(monkeypatch):
     assert saved == {}
 
 
+def test_page_error_does_not_advance_checkpoint(monkeypatch):
+    saved = {}
+    monkeypatch.setattr(scan_core, 'get_delay', lambda: 0)
+    monkeypatch.setattr(scan_core, 'get_incr_checkpoint', lambda *a: None)
+    monkeypatch.setattr(scan_core, 'update_incr_checkpoint',
+                        lambda t, k, data: saved.update(data))
+
+    async def fetch(page):
+        if page == 1:
+            return _items(1, 5)
+        raise RuntimeError('boom')
+
+    result = asyncio.run(scan_core.scan_pages(
+        fetch_page=fetch, scan_type='test', max_results=10, page_size=5))
+    assert len(result) == 5
+    assert saved == {}
+
+
 def test_filter_change_ignores_checkpoint(monkeypatch):
     pages = [_items(1, 5)]
     result, saved = _run(

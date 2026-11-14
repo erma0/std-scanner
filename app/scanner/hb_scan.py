@@ -101,6 +101,7 @@ def _scan_list_standards(items, item_label, fetch_fn, site_type, log_prefix, max
         page_limit = max(20, max_pages * 3) if (incr and last_first_pk) else max_pages
         found_checkpoint = False
         ended = False
+        page_failed = False
 
         for page in range(1, page_limit + 1):
             if check_pause:
@@ -114,6 +115,7 @@ def _scan_list_standards(items, item_label, fetch_fn, site_type, log_prefix, max
                     on_error(label, page, e)
                 else:
                     _log.warning(f"   {item_label}={label} 第{page}页请求失败: {e}")
+                page_failed = True
                 break
 
             records = result.get('records', [])
@@ -192,10 +194,14 @@ def _scan_list_standards(items, item_label, fetch_fn, site_type, log_prefix, max
         else:
             item_results = [s for s in all_standards
                             if s.get('siteType') == site_type and s.get('industry') == item]
-        ckpt_blocked = bool(incr and last_first_pk and not found_checkpoint and not ended)
+        ckpt_blocked = bool(page_failed or (
+            incr and last_first_pk and not found_checkpoint and not ended))
         if ckpt_blocked:
-            _log.warning(f"   {item_label}={label} 增量扫描超过 {page_limit} 页仍未命中上次位置，"
-                         f"checkpoint 未推进，建议提高 max_results")
+            if page_failed:
+                _log.warning(f"   {item_label}={label} 存在请求失败页，本次 checkpoint 未推进")
+            else:
+                _log.warning(f"   {item_label}={label} 增量扫描超过 {page_limit} 页仍未命中上次位置，"
+                             f"checkpoint 未推进，建议提高 max_results")
         if item_results and not ckpt_blocked:
             ckpt_page = page - 1 if found_checkpoint else page
             if ckpt_page > 0:

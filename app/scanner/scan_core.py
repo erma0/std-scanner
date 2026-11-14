@@ -117,6 +117,8 @@ async def scan_pages(
                 on_error(page, e)
             else:
                 _log.error(f"{label} 第{page}页列表请求失败: {e}")
+            # 页码中断：本次结果不完整，不推进 checkpoint，避免漏掉后续页
+            ckpt_blocked = True
             break
 
         if not items:
