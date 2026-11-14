@@ -320,8 +320,8 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                         </select>
                                     </div>
                                     <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">最大结果数</label>
-                                        <input type="number" id="search-max" value="10" min="1" max="50" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm">
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">最大结果数 <span class="text-xs font-normal text-gray-400">（建议 ≤10）</span></label>
+                                        <input type="number" id="search-max" value="10" min="1" max="50" title="国标/行标/地标站点每页 10 条，超过 10 仅在团体标准生效" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm">
                                     </div>
                                 </div>
                                 <div class="flex gap-2">
@@ -1174,8 +1174,8 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                         </select>
                     </div>
                     <div>
-                        <label class="block text-xs text-gray-600 mb-1">关键词每词上限</label>
-                        <input type="number" id="batch-search-per-max" value="10" min="1" max="100" class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
+                        <label class="block text-xs text-gray-600 mb-1">关键词每词上限 <span class="text-gray-400">（建议 ≤10）</span></label>
+                        <input type="number" id="batch-search-per-max" value="10" min="1" max="100" title="国标/行标/地标站点每页 10 条，超过 10 仅在团体标准生效" class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
                     </div>
                 </div>
                 <label class="flex items-center text-sm text-gray-700 mb-2 cursor-pointer">
