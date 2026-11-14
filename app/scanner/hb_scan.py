@@ -108,14 +108,27 @@ def _scan_list_standards(items, item_label, fetch_fn, site_type, log_prefix, max
                 if not check_pause():
                     _log.info(f"   {item_label}={label} 扫描被中止")
                     break
-            try:
-                result = fetch_fn(item, page, size=100)
-            except Exception as e:
+            result = None
+            last_exc = None
+            for attempt in range(2):
+                try:
+                    result = fetch_fn(item, page, size=100)
+                    last_exc = None
+                    break
+                except Exception as e:
+                    last_exc = e
+                    if attempt == 0:
+                        _log.warning(f"   {item_label}={label} 第{page}页请求失败，重试一次: {e}")
+                        time.sleep(get_delay())
+            if last_exc is not None:
                 if on_error:
-                    on_error(label, page, e)
+                    on_error(label, page, last_exc)
                 else:
-                    _log.warning(f"   {item_label}={label} 第{page}页请求失败: {e}")
+                    _log.warning(f"   {item_label}={label} 第{page}页请求失败: {last_exc}")
                 page_failed = True
+                break
+            if not result:
+                ended = True
                 break
 
             records = result.get('records', [])

@@ -3,6 +3,7 @@
 import json
 import time
 import logging
+import threading
 
 from config import paths
 from app.helpers import atomic_write
@@ -10,6 +11,9 @@ from app.helpers import atomic_write
 _log = logging.getLogger('std_scraper')
 
 _migrated = False
+# 多源并发扫描（如 MEM bz+gz、SAMR 双源）会同时写 checkpoint，
+# 加锁避免读-改-写互相覆盖导致增量位置丢失
+_lock = threading.RLock()
 
 
 def _migrate_old_ckpt():
@@ -65,13 +69,14 @@ def get_incr_checkpoint(scan_type, item_key=None):
 
 def update_incr_checkpoint(scan_type, item_key, data):
     """更新特定类型/条目的增量 checkpoint"""
-    data['updatedAt'] = time.strftime('%Y-%m-%d %H:%M:%S')
-    ckpt = load_scan_checkpoint()
-    if item_key:
-        ckpt.setdefault(scan_type, {})[item_key] = data
-    else:
-        ckpt[scan_type] = data
-    _save_scan_checkpoint(ckpt)
+    with _lock:
+        data['updatedAt'] = time.strftime('%Y-%m-%d %H:%M:%S')
+        ckpt = load_scan_checkpoint()
+        if item_key:
+            ckpt.setdefault(scan_type, {})[item_key] = data
+        else:
+            ckpt[scan_type] = data
+        _save_scan_checkpoint(ckpt)
 
 
 def reset_incr_checkpoint(scan_type=None, item_key=None):
@@ -81,28 +86,29 @@ def reset_incr_checkpoint(scan_type=None, item_key=None):
     - scan_type='gb', item_key=None → 清空国标
     - scan_type='hb', item_key='AQ' → 清空行标-安全生产
     """
-    if scan_type is None:
-        _log.info("[CKPT] 重置全部 checkpoint")
-        _save_scan_checkpoint({})
-        return
+    with _lock:
+        if scan_type is None:
+            _log.info("[CKPT] 重置全部 checkpoint")
+            _save_scan_checkpoint({})
+            return
 
-    ckpt = load_scan_checkpoint()
-    if item_key:
-        if scan_type in ckpt and isinstance(ckpt[scan_type], dict) and item_key in ckpt[scan_type]:
-            del ckpt[scan_type][item_key]
-            if not ckpt[scan_type]:
+        ckpt = load_scan_checkpoint()
+        if item_key:
+            if scan_type in ckpt and isinstance(ckpt[scan_type], dict) and item_key in ckpt[scan_type]:
+                del ckpt[scan_type][item_key]
+                if not ckpt[scan_type]:
+                    del ckpt[scan_type]
+                _log.info(f"[CKPT] 重置 {scan_type}/{item_key} checkpoint")
+            else:
+                _log.info(f"[CKPT] {scan_type}/{item_key} 无 checkpoint，跳过")
+        else:
+            if scan_type in ckpt:
                 del ckpt[scan_type]
-            _log.info(f"[CKPT] 重置 {scan_type}/{item_key} checkpoint")
-        else:
-            _log.info(f"[CKPT] {scan_type}/{item_key} 无 checkpoint，跳过")
-    else:
-        if scan_type in ckpt:
-            del ckpt[scan_type]
-            _log.info(f"[CKPT] 重置 {scan_type} 全部 checkpoint")
-        else:
-            _log.info(f"[CKPT] {scan_type} 无 checkpoint，跳过")
+                _log.info(f"[CKPT] 重置 {scan_type} 全部 checkpoint")
+            else:
+                _log.info(f"[CKPT] {scan_type} 无 checkpoint，跳过")
 
-    _save_scan_checkpoint(ckpt)
+        _save_scan_checkpoint(ckpt)
 
 
 def load_ckpt():

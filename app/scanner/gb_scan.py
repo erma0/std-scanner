@@ -72,17 +72,30 @@ async def scan_pages(max_results=500, incr=False, keyword_group=None, on_progres
             if not await check_pause():
                 _log.info("扫描被中止（暂停/删除）")
                 break
-        try:
-            loop = asyncio.get_running_loop()
-            data = await loop.run_in_executor(None, fetch_api_page, p, state)
-        except Exception as e:
+        data = None
+        last_exc = None
+        for attempt in range(2):
+            try:
+                loop = asyncio.get_running_loop()
+                data = await loop.run_in_executor(None, fetch_api_page, p, state)
+                last_exc = None
+                break
+            except Exception as e:
+                last_exc = e
+                if attempt == 0:
+                    _log.warning(f"第{p}页请求失败，重试一次: {e}")
+                    await asyncio.sleep(get_delay())
+        if last_exc is not None:
             if on_error:
-                on_error(p, e)
+                on_error(p, last_exc)
             else:
-                _log.warning(f"第{p}页请求失败: {e}, 跳过")
+                _log.warning(f"第{p}页请求失败: {last_exc}, 跳过")
             page_failed = True
             await asyncio.sleep(get_delay() * 2)
             continue
+        if not data:
+            ended = True
+            break
 
         rows = data.get('rows', [])
         if not rows:

@@ -110,13 +110,23 @@ async def scan_pages(
             except Exception:
                 pass
 
-        try:
-            items = await fetch_page(page)
-        except Exception as e:
+        items = None
+        last_exc = None
+        for attempt in range(2):
+            try:
+                items = await fetch_page(page)
+                last_exc = None
+                break
+            except Exception as e:
+                last_exc = e
+                if attempt == 0:
+                    _log.warning(f"{label} 第{page}页请求失败，重试一次: {e}")
+                    await asyncio.sleep(get_delay())
+        if last_exc is not None:
             if on_error:
-                on_error(page, e)
+                on_error(page, last_exc)
             else:
-                _log.error(f"{label} 第{page}页列表请求失败: {e}")
+                _log.error(f"{label} 第{page}页列表请求失败: {last_exc}")
             # 页码中断：本次结果不完整，不推进 checkpoint，避免漏掉后续页
             ckpt_blocked = True
             break
