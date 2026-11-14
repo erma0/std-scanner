@@ -13,13 +13,17 @@ import re
 
 _MAX_ZERO_SAMPLES = 50
 
-# 工程建设国家标准（GB 50xxx–55xxx）不纳入 std.samr.gov.cn 检索系统，
-# 查询这类编号必然无结果，需在诊断里明确提示，避免误判为站点限流
-_ENG_STD_RE = re.compile(r'^\s*GB(?:/T)?\s*5[0-5]\d{3}(?:\.\d+)?(?:[\s\-—–]|$)', re.I)
+# 工程建设标准（GB 50xxx–55xxx 国家标准，以及 CJJ/CJJ/T/JGJ/JGJ/T 行业标准）
+# 不在 std.samr.gov.cn / hbba 检索体系内，由住建部在公告中发布全文附件，
+# 查询这类编号须走住建部渠道，避免误判为站点限流
+_ENG_STD_RE = re.compile(
+    r'^\s*(?:GB(?:/T)?\s*5[0-5]\d{3}(?:\.\d+)?'
+    r'|CJJ(?:/T)?\s*\d+(?:\.\d+)?'
+    r'|JGJ(?:/T)?\s*\d+(?:\.\d+)?)(?:[\s\-—–]|$)', re.I)
 
 
 def is_engineering_standard(query):
-    """查询是否为工程建设国家标准编号（GB 50xxx–55xxx）。"""
+    """查询是否为住建部公告发布的工程建设标准编号（GB 50xxx–55xxx / CJJ / JGJ）。"""
     return bool(_ENG_STD_RE.match(str(query or '')))
 
 # 0 新增查询的原因分类，供前端按原因重试
@@ -126,7 +130,7 @@ class SearchBatchDiag:
         kind = (kind_override or self._kind(raw, matched, added, duplicate, existing,
                                             unavailable, obsolete, site_total, error))
         if kind in ('no_result', 'mismatch', 'unparsed') and is_engineering_standard(query):
-            reason += '（工程建设国家标准不在该检索库）'
+            reason += '（工程建设标准由住建部公告发布，不在该检索库）'
         self.last = {
             'query': query, 'raw': raw, 'matched': matched, 'added': added,
             'reason': reason, 'error': bool(error), 'kind': kind,

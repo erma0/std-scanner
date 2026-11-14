@@ -122,8 +122,8 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
                 raw_standards = await search_tt_standards(q, per_query_max)
                 site_total = len(raw_standards)
             elif is_engineering_standard(q):
-                # 工程建设国标（GB 50xxx–55xxx）不在 std.samr，优先查住建部公告；
-                # 查不到时回退国标检索，避免号段内个别非工程标准被漏掉
+                # 工程建设标准（GB 50xxx–55xxx / CJJ / JGJ）不在 std.samr，
+                # 优先查住建部公告；查不到时回退国标检索，避免个别条目被漏掉
                 moh = await loop.run_in_executor(None, find_mohurd_standard, q)
                 if moh:
                     raw_standards, site_total = [moh], 1
@@ -137,6 +137,8 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
             query_error = f'{type(e).__name__}: {e}'
 
         raw_count = len(raw_standards)
+        # 补充检索会覆盖 site_total，先记录首次检索的命中数，用于判断编号是否真的未收录
+        first_total = site_total
         standards = list(raw_standards)
         is_code_query = False
         obsolete_this = 0
@@ -228,6 +230,12 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
                     others = other_year_versions(q, raw_standards)
                     if others:
                         note = '站点无该年份版本，仅有 ' + '、'.join(others)
+                    else:
+                        info = parse_standard_code(q)
+                        # 编号未收录且首次检索 0 条：GB/Z 常被误当成职业卫生标准 GBZ
+                        if info and info['prefix'] == 'GB/Z' and not first_total:
+                            note = ('国标检索库未收录该 GB/Z 编号；'
+                                    'GBZ 系列（职业卫生标准）的编号不含斜杠，请勿写成 GB/Z')
 
         matched_count = len(standards)
         added = duplicate = existing_count = unavailable = 0

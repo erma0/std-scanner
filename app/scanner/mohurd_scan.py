@@ -1,7 +1,8 @@
-"""scanner.mohurd_scan — 工程建设国家标准（住建部公告）检索与下载
+"""scanner.mohurd_scan — 工程建设标准（住建部公告）检索与下载
 
-工程建设国家标准（GB 50xxx–55xxx）不在 std.samr.gov.cn 检索体系内，由
-住房和城乡建设部在"标准公告"中发布，公告页的附件即标准全文 PDF。
+工程建设标准（GB 50xxx–55xxx 国家标准，以及 CJJ/JGJ 行业标准）不在
+std.samr.gov.cn 检索体系内，由住房和城乡建设部在"标准公告"中发布，公告页的
+附件即标准全文 PDF。
 
 流程：
   1. jpaas-jsearch 站内检索（用紧凑编号，如 GB50016-2014）

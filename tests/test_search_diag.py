@@ -65,9 +65,12 @@ class TestSearchBatchDiag:
         assert d.kind_counts == {'duplicate': 1, 'existing': 2}
 
     def test_engineering_code_hint(self):
-        d = SearchBatchDiag(2)
-        assert '工程建设国家标准' in d.record('GB 50016-2014', raw=0)
-        assert '工程建设国家标准' in d.record('GB/T 51345-2018', raw=1, matched=0)
+        d = SearchBatchDiag(6)
+        assert '住建部' in d.record('GB 50016-2014', raw=0)
+        assert '住建部' in d.record('GB/T 51345-2018', raw=1, matched=0)
+        # 工程建设行业标准（CJJ/JGJ）同样提示住建部渠道
+        assert '住建部' in d.record('CJJ 207-2013', raw=0)
+        assert '住建部' in d.record('JGJ/T 59-2011', raw=0)
         # 非工程建设编号不受影响
         assert d.record('GB 1-2020', raw=0) == '站点无结果'
 
