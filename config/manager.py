@@ -50,7 +50,7 @@ DEFAULT_CONFIG = {
         "max_tasks": 200,           # 任务总数上限，超出时清理最旧的
     },
     "search": {
-        # 编号纠错：GB 查不到时自动改用同号同年的 GB/T（反之亦然）
+        # 编号纠错：查不到时在强制/推荐（/T）前缀间切换，如 GB↔GB/T、HB↔HB/T
         "auto_correct_code": True,
     },
     # 行业/省份默认为空，运行时由 keywords.py 的 PRESET_GROUP 填充

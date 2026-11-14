@@ -974,7 +974,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                                         </div>
                                         <div>
                                             <span class="text-sm text-gray-700">编号纠错</span>
-                                            <p class="text-xs text-gray-400 mt-0.5" id="auto-correct-status-text">GB 查不到时自动改用同号同年的 GB/T（反之亦然）</p>
+                                            <p class="text-xs text-gray-400 mt-0.5" id="auto-correct-status-text">查不到时自动切换同号同年的强制/推荐编号（GB ↔ GB/T、HB ↔ HB/T 等）</p>
                                         </div>
                                     </div>
                                     <div class="grid grid-cols-2 gap-3">
@@ -2085,7 +2085,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
             const text = document.getElementById('auto-correct-status-text');
             if (!text) return;
             text.textContent = toggleStates['auto-correct']
-                ? '已启用；GB 查不到时自动改用同号同年的 GB/T（反之亦然）'
+                ? '已启用；查不到时自动切换同号同年的强制/推荐编号（GB ↔ GB/T、HB ↔ HB/T 等）'
                 : '已禁用；编号不匹配时不做自动替换';
         }
 

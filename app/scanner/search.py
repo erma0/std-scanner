@@ -31,7 +31,7 @@ def _collapse_text(text):
 # 查询/结果编号解析：兼容 "GB/T 50016-2014"、"DB11/T 123-2020"、"T/CECS 1-2020"
 # 以及纯数字 "50016"；末尾允许“（2018年版）”这类后缀
 _STD_CODE_RE = re.compile(
-    r'^\s*([A-Za-z]{1,6}\d*)\s*(?:/\s*[A-Za-z]{1,4})?\s*(\d+(?:\.\d+)?)'
+    r'^\s*([A-Za-z]{1,6}\d*(?:\s*/\s*[A-Za-z]{1,4})?)\s*(\d+(?:\.\d+)?)'
     r'\s*(?:[-—–]\s*(\d{2,4}))?\s*(?:[（(].*)?$'
 )
 # 紧凑编号（GB50016-2014 / GB/T50145-2007）：前缀不含数字，与 DB11/T 这类
@@ -53,7 +53,8 @@ def parse_standard_code(text):
     for pattern in (_COMPACT_CODE_RE, _STD_CODE_RE):
         m = pattern.match(norm)
         if m:
-            return {'prefix': (m.group(1) or '').upper(), 'part': m.group(2),
+            prefix = re.sub(r'\s+', '', m.group(1) or '').upper()
+            return {'prefix': prefix, 'part': m.group(2),
                     'year': m.group(3) or ''}
     m = _STD_NUMBER_RE.match(norm)
     if m:
@@ -61,22 +62,28 @@ def parse_standard_code(text):
     return None
 
 
-def alternate_code_prefix(code):
-    """GB ↔ GB/T 纠错：返回同号同年的另一前缀编号，无法推导时返回 ''。
+# 这些体系的编号不使用 /T 表示推荐性，套用会得到无意义的编号
+_NO_T_PREFIXES = {'JJF', 'JJG', 'TSG', 'CECS', 'GB/Z'}
 
-    仅处理 GB 系列（用户最常把 GB/T 写成 GB），要求带年份，避免误配到其他版本。
+
+def alternate_code_prefix(code):
+    """编号纠错：在 推荐性(/T) 与 强制性 前缀之间切换。
+
+    例：GB → GB/T、HB → HB/T、DB11/T → DB11、JGJ/T → JGJ。
+    团体标准（T/...）及 JJF/JJG/TSG 等没有 /T 体系的编号不处理。
     """
     info = parse_standard_code(code)
-    if not info or not info.get('year'):
+    if not info:
         return ''
     prefix = info['prefix']
-    if prefix == 'GB':
-        alt = 'GB/T'
-    elif prefix == 'GB/T':
-        alt = 'GB'
-    else:
+    if not prefix or prefix.startswith('T/') or prefix in _NO_T_PREFIXES:
         return ''
-    return f"{alt} {info['part']}-{info['year']}"
+    if prefix.endswith('/T'):
+        alt = prefix[:-2]
+    else:
+        alt = f'{prefix}/T'
+    suffix = f"-{info['year']}" if info.get('year') else ''
+    return f"{alt} {info['part']}{suffix}"
 
 
 def filter_standard_results(query, standards, max_results=None):

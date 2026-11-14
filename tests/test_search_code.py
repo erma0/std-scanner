@@ -14,12 +14,20 @@ class TestAlternateCodePrefix:
     def test_gbt_to_gb(self):
         assert alternate_code_prefix('GB/T 5907.1-2014') == 'GB 5907.1-2014'
 
-    def test_requires_year(self):
-        assert alternate_code_prefix('GB 15831') == ''
+    def test_without_year(self):
+        assert alternate_code_prefix('GB 15831') == 'GB/T 15831'
 
-    def test_non_gb_prefix_untouched(self):
-        assert alternate_code_prefix('HB 1234-2020') == ''
-        assert alternate_code_prefix('DB11/T 123-2020') == ''
+    def test_industry_and_local_prefix(self):
+        assert alternate_code_prefix('HB 1234-2020') == 'HB/T 1234-2020'
+        assert alternate_code_prefix('HB/T 1234-2020') == 'HB 1234-2020'
+        assert alternate_code_prefix('DB11/T 123-2020') == 'DB11 123-2020'
+        assert alternate_code_prefix('JGJ 59-2011') == 'JGJ/T 59-2011'
+        assert alternate_code_prefix('CJJ/T 1-2009') == 'CJJ 1-2009'
+
+    def test_no_t_variant_prefixes(self):
+        assert alternate_code_prefix('T/CECS 1-2020') == ''
+        assert alternate_code_prefix('JJF 1234-2010') == ''
+        assert alternate_code_prefix('GB/Z 123-2020') == ''
 
 
 class TestCompactParse:

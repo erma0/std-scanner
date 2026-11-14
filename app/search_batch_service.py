@@ -186,8 +186,9 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
                         _log.warning(f"  [{i+1}/{total}] 按编号二次搜索 '{retry_q}' 失败: "
                                      f"{type(e).__name__}: {e}")
 
-            # 编号纠错：GB 查不到时尝试同号同年的 GB/T（反之亦然），
-            # 默认开启，可在设置中关闭；工程建设号段已走住建部，不参与纠错
+            # 编号纠错：原编号查不到时，在 强制/推荐（/T）前缀间切换重试，
+            # 如 GB↔GB/T、HB↔HB/T、DB11↔DB11/T；默认开启，可在设置中关闭。
+            # 工程建设号段已走住建部，不参与纠错
             if auto_correct_code and is_code_query and not standards and not is_engineering_standard(q):
                 alt_q = alternate_code_prefix(q)
                 if alt_q:

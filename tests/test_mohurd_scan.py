@@ -23,8 +23,8 @@ class TestCodeHelpers:
             'prefix': 'GB', 'part': '50016', 'year': '2014'}
         assert parse_standard_code('GB/T50145-2007') == {
             'prefix': 'GB/T', 'part': '50145', 'year': '2007'}
-        # 带地区码的前缀仍走原规则
-        assert parse_standard_code('DB11/T 123-2020')['prefix'] == 'DB11'
+        # 带地区码的前缀仍走原规则，/T 保留在 prefix 中
+        assert parse_standard_code('DB11/T 123-2020')['prefix'] == 'DB11/T'
 
     def test_article_id(self):
         url = 'https://www.mohurd.gov.cn/gongkai/zc/wjk/art/2015/art_17339_224333.html'
