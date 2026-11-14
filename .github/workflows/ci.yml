@@ -105,13 +105,14 @@ jobs:
 
       - name: 打包 ZIP
         run: |
+          # 资产名使用 ASCII：GitHub 上传时会丢弃非 ASCII 字符，中文名会变成 "-win64.zip"
           # 目录版
           cp -r 标准速递-win64 标准速递-win64-temp
           cp README.md 标准速递-win64-temp/ 2>/dev/null || true
-          cd 标准速递-win64-temp && zip -r ../标准速递-win64.zip . && cd ..
+          cd 标准速递-win64-temp && zip -r ../std-scanner-win64.zip . && cd ..
           # 单文件版
           cp 标准速递-onefile/标准速递.exe ./
-          zip 标准速递-win64-onefile.zip 标准速递.exe
+          zip std-scanner-win64-onefile.zip 标准速递.exe
 
       - name: 生成 Release Notes
         id: notes
@@ -127,8 +128,8 @@ jobs:
 
           | 文件 | 说明 |
           |------|------|
-          | \`标准速递-win64.zip\` | 目录版（推荐，启动快） |
-          | \`标准速递-win64-onefile.zip\` | 单文件版（体积小，启动慢） |
+          | \`std-scanner-win64.zip\` | 目录版（推荐，启动快） |
+          | \`std-scanner-win64-onefile.zip\` | 单文件版（体积小，启动慢） |
 
           ### 使用方法
 
@@ -156,5 +157,5 @@ jobs:
           tag_name: ${{ steps.notes.outputs.tag }}
           body_path: release_notes.md
           files: |
-            标准速递-win64.zip
-            标准速递-win64-onefile.zip
+            std-scanner-win64.zip
+            std-scanner-win64-onefile.zip
