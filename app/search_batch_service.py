@@ -143,6 +143,22 @@ async def batch_search_dedup(task_manager, task_id, queries, std_type, per_query
             else:
                 standards = standards[:per_query_max]
 
+            # 站点每页 10 条，编号族较大时目标可能落在第 2 页（如 GB 30000.2）
+            if not is_tt and is_code_query and not standards and site_total > raw_count > 0:
+                try:
+                    more, more_total = await loop.run_in_executor(
+                        None, fetch_stdpage_search, q, 2, std_type)
+                    if more:
+                        raw_standards = raw_standards + more
+                        raw_count = len(raw_standards)
+                        site_total = max(site_total, more_total)
+                        standards, _ = filter_standard_results(q, raw_standards, per_query_max)
+                        if standards:
+                            _log.info(f"  [{i+1}/{total}] '{q[:40]}' 在第 2 页命中")
+                except Exception as e:
+                    _log.warning(f"  [{i+1}/{total}] 第 2 页搜索 '{q[:40]}' 失败: "
+                                 f"{type(e).__name__}: {e}")
+
             # 编号查询未命中时，用数字部分再搜一次（站点对完整编号的匹配不稳定）
             if is_code_query and not standards and not is_engineering_standard(q):
                 info = parse_standard_code(q)
