@@ -89,8 +89,9 @@ def alternate_code_prefix(code):
     return f"{alt} {info['part']}{suffix}"
 
 
-# 国标检索库不收录 GBZ（职业卫生）系列：站点会把 GBZ 归一成 GB/Z，
-# 返回同号但无关的标准，容易被误判成"旧版已被新版替代"
+# GBZ/GBZ/T 是国家职业卫生标准，与 GB/Z（国家标准化指导性技术文件）分属
+# 两个编号体系。国标检索库不收录 GBZ，且检索时会把两者混在一起返回同号结果，
+# 容易被误判成"旧版已被新版替代"
 _SITE_UNCOVERED_PREFIXES = {'GBZ', 'GBZ/T'}
 
 
@@ -99,8 +100,9 @@ def site_uncovered_note(query):
     info = parse_standard_code(query)
     if not info or info['prefix'] not in _SITE_UNCOVERED_PREFIXES:
         return ''
-    return (f'{info["prefix"]} 系列不在该检索库（站点会把 GBZ 归一成 GB/Z，'
-            f'返回的是同号但无关的标准），需到卫健委标准网查询')
+    return (f'{info["prefix"]} 是国家职业卫生标准，与 GB/Z（指导性技术文件）'
+            f'不是同一体系；国标检索库未收录该系列，返回的 GB/Z 为同号无关标准，'
+            f'需到卫健委标准网查询')
 
 
 def other_year_versions(query, standards, limit=2):

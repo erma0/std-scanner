@@ -39,8 +39,10 @@ class TestCompactParse:
 
 class TestSiteCoverage:
     def test_uncovered_family(self):
-        assert '不在该检索库' in site_uncovered_note('GBZ/T 325-2022')
+        note = site_uncovered_note('GBZ/T 325-2022')
+        assert '不是同一体系' in note and '卫健委' in note
         assert site_uncovered_note('GB/T 325-2022') == ''
+        assert site_uncovered_note('GB/Z 325-2022') == ''
 
     def test_other_year_versions(self):
         items = [{'code': 'GB/T 1234-2024', 'status': '现行'},
