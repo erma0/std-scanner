@@ -1159,7 +1159,7 @@ function toggleTheme(){var e=document.documentElement;e.classList.toggle("dark")
                     </div>
                     <h3 class="text-base font-semibold text-gray-800">批量搜索下载</h3>
                 </div>
-                <p class="text-xs text-gray-500 mb-2 ml-13">每行一个关键词或标准号（# 开头为注释，单次最多 1000 行）。标准号会精确匹配编号（不含年份时自动排除废止版本），关键词按下方上限保留，命中的废止版本默认跳过。</p>
+                <p class="text-xs text-gray-500 mb-2 ml-13">每行一个关键词或标准号（# 开头为注释，单次最多 1000 行）。标准号会精确匹配编号（不含年份时自动排除废止版本），关键词按下方上限保留，命中的废止版本默认跳过。实际下载到的废止标准会存入输出目录的「已废止」子目录。</p>
                 <textarea id="batch-search-input" rows="8" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 mb-3 font-mono" placeholder="# 每行一个关键词或标准号，例如：&#10;50016&#10;消防&#10;GB 50016&#10;氨制冷"></textarea>
                 <div class="grid grid-cols-2 gap-3 mb-4">
                     <div>

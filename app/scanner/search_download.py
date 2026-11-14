@@ -159,6 +159,9 @@ class SearchDownloadSession:
         from config.settings import http_client, OPENSTD, get_output_dir
 
         out_dir = Path(output_dir) if output_dir else (self.output_dir or get_output_dir())
+        # 已废止标准单独落盘，便于用户按状态区分；去重扫描是递归的，不影响已有文件判断
+        if is_obsolete(item):
+            out_dir = out_dir / '已废止'
         out_dir.mkdir(parents=True, exist_ok=True)
         tid = item.get('tid', '')
         pid = item.get('pid', '')
@@ -198,7 +201,8 @@ class SearchDownloadSession:
             from app.scanner.tt_scan import _download_one_standard
             std = {'detail_id': pid, 'pid': pid, 'code': code, 'name': name, 'sellable': False}
             try:
-                await _download_one_standard(std, self.existing, abort_check=abort_check)
+                await _download_one_standard(std, self.existing, abort_check=abort_check,
+                                             output_dir=out_dir)
             except Exception as e:
                 _log.error(f"  [TT ERROR] {code} {e}")
                 return self._mark(item, 'failed', f'{type(e).__name__}: {e}')

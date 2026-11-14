@@ -33,6 +33,7 @@ import asyncio
 import logging
 import threading
 import urllib.parse
+from pathlib import Path
 from typing import Callable, Optional
 
 from app.helpers import normalize_code
@@ -261,12 +262,14 @@ def _fetch_pdf_url(standard_unique_id: str) -> Optional[str]:
     return None
 
 
-async def _download_one_standard(std: dict, existing: set, abort_check=None) -> dict:
+async def _download_one_standard(std: dict, existing: set, abort_check=None,
+                                 output_dir=None) -> dict:
     """下载单个团体标准 PDF。返回更新后的 std（含 dlStatus / failReason）。
 
     用 httpx 直接调用：详情 API 拿 fileUrl → GET 下载 PDF。
     abort_check: 可选 callable() → bool，返回 True 时中止（任务暂停/删除），
                  std['dlStatus'] 置为 'aborted' 但不落盘。
+    output_dir: 指定落盘目录（搜索结果下载会传入"已废止"子目录），默认输出目录。
     """
     detail_id = std.get('detail_id') or std.get('pid')
     code = std.get('code', '')
@@ -320,7 +323,8 @@ async def _download_one_standard(std: dict, existing: set, abort_check=None) -> 
             std['failReason'] = reason
             return std
         # 落盘
-        out_dir = get_output_dir()
+        out_dir = Path(output_dir) if output_dir else get_output_dir()
+        out_dir.mkdir(parents=True, exist_ok=True)
         filepath = out_dir / filename
         save_file(body, filepath, filename, existing)
         _log.info(f"  [TT][OK] {filepath} ({len(body)/1024:.0f}KB)")
