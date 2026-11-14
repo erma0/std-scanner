@@ -41,7 +41,8 @@ from typing import Callable, Optional
 
 from app.helpers import normalize_code, _DASH_NORMALIZE_TABLE
 from app.keywords import is_safety, set_active_group
-from app.scanner.checkpoint import get_incr_checkpoint, update_incr_checkpoint
+from app.scanner.scan_core import make_filter_key, scan_pages
+from app.scanner.download_helpers import save_file, validate_file_response
 from app.scanner.utils import make_filename
 from config.settings import (
     MEM_BASE, MEM_LIST_URL, MEM_GZ_LIST_URL,
@@ -330,6 +331,7 @@ async def _scan_one_source(
     progress_share: float = 1.0,
     progress_base: int = 0,
     on_error: Callable = None,
+    keyword_group: str = '',
 ) -> list:
     """扫描单个源（bz 或 gz）。
 
@@ -348,103 +350,38 @@ async def _scan_one_source(
     Returns:
         标准列表
     """
-    all_standards = []
-    total_scanned = 0
     ckpt_key = f'mem_{source}_all'
     page_size = _SOURCE_PAGE_SIZE.get(source, _MEM_PAGE_SIZE)
     source_label = '规章' if source == 'gz' else '标准文本'
 
-    # 增量 checkpoint
-    last_first_id = None
-    if incr:
-        ckpt = get_incr_checkpoint('mem', ckpt_key)
-        if ckpt:
-            last_first_id = ckpt.get('first_id')
-            _log.info(f"[MEM][{source}] 增量扫描，上次最新文章 ID={last_first_id}")
-
-    page_no = 1
-    hit_last = False
-
-    while total_scanned < max_results:
-        if check_pause:
-            try:
-                if not await check_pause():
-                    return all_standards
-            except Exception:
-                pass
-
-        if on_progress:
-            raw_pct = min(95, int(total_scanned / max(max_results, 1) * 95))
-            pct = progress_base + int(progress_share * raw_pct)
-            try:
-                await on_progress(pct, f'[{source_label}]第{page_no}页（已{total_scanned}条）')
-            except Exception:
-                pass
-
-        # 同步 HTTP 调用包装到 executor
+    async def _fetch(page):
         loop = asyncio.get_running_loop()
-        try:
-            html = await loop.run_in_executor(None, _call_list_page, page_no, source)
-        except Exception as e:
-            if on_error:
-                on_error(source, page_no, e)
-            else:
-                _log.error(f"[MEM][{source}] 第{page_no}页列表请求失败: {e}")
-            break
+        html = await loop.run_in_executor(None, _call_list_page, page, source)
+        return _parse_list_items(html, source)
 
-        page_items = _parse_list_items(html, source)
-        if not page_items:
-            _log.info(f"[MEM][{source}] 第{page_no}页无数据，结束")
-            break
-
-        # 增量比对 + 过滤
-        for it in page_items:
-            if last_first_id and it['detail_id'] == last_first_id:
-                _log.info(f"[MEM][{source}] 增量命中上次位置 article_id={last_first_id}，停止")
-                hit_last = True
-                break
-            # 状态过滤
-            if status and status != '全部' and it.get('status') != status:
-                continue
-            # 关键词过滤（__all__ 模式跳过）
-            if not is_all and not is_safety(it.get('name', ''), 'mem'):
-                continue
-            all_standards.append(it)
-            total_scanned += 1
-            if total_scanned >= max_results:
-                break
-
-        if hit_last:
-            break
-        if total_scanned >= max_results:
-            break
-
-        # 推送中间结果
-        if on_intermediate:
-            try:
-                await on_intermediate(list(all_standards))
-            except Exception:
-                pass
-
-        # 翻页前判断：当前页不足一页，说明已到末页
-        if len(page_items) < page_size:
-            break
-
-        page_no += 1
-        # 保护网站
-        await asyncio.sleep(get_delay())
-
-    # 更新 checkpoint（保存本次最新一条文章 ID）
-    if all_standards:
-        update_incr_checkpoint('mem', ckpt_key, {
-            'first_id': all_standards[0]['detail_id'],
-            'first_code': all_standards[0].get('code', ''),
-            'first_name': all_standards[0].get('name', ''),
-            'count': len(all_standards),
-        })
-
-    _log.info(f"[MEM][{source}] {source_label}扫描完成: {len(all_standards)} 条")
-    return all_standards
+    return await scan_pages(
+        fetch_page=_fetch,
+        scan_type='mem',
+        item_key=ckpt_key,
+        filter_key=make_filter_key(status, keyword_group or '安全生产', 'mem'),
+        incr=incr,
+        max_results=max_results,
+        page_size=page_size,
+        item_id=lambda it: it['detail_id'],
+        filter_item=lambda it: (
+            (not status or status == '全部' or it.get('status') == status)
+            and (is_all or is_safety(it.get('name', ''), 'mem'))
+        ),
+        on_progress=on_progress,
+        on_intermediate=on_intermediate,
+        check_pause=check_pause,
+        on_error=(lambda page, e: on_error(source, page, e)) if on_error else None,
+        progress_base=progress_base,
+        progress_share=progress_share,
+        label=f'[MEM][{source}]',
+        progress_text=lambda page, n: (
+            f'[{source_label}]第{page}页（已{n}条）'),
+    )
 
 
 async def scan_mem_standards(
@@ -519,10 +456,12 @@ async def scan_mem_standards(
         bz_std, gz_std = await asyncio.gather(
             _scan_one_source('bz', max_results, incr, is_all, status,
                              _bz_progress, _bz_intermediate, check_pause,
-                             progress_share=0.5, progress_base=0, on_error=on_error),
+                             progress_share=0.5, progress_base=0, on_error=on_error,
+                             keyword_group=keyword_group),
             _scan_one_source('gz', max_results, incr, is_all, status,
                              _gz_progress, _gz_intermediate, check_pause,
-                             progress_share=0.5, progress_base=50, on_error=on_error),
+                             progress_share=0.5, progress_base=50, on_error=on_error,
+                             keyword_group=keyword_group),
         )
         all_standards = bz_std + gz_std
         _log.info(f"[MEM][all] 两源合并: bz={len(bz_std)} + gz={len(gz_std)} = {len(all_standards)} 条")
@@ -532,6 +471,7 @@ async def scan_mem_standards(
     return await _scan_one_source(
         source, max_results, incr, is_all, status,
         on_progress, on_intermediate, check_pause, on_error=on_error,
+        keyword_group=keyword_group,
     )
 
 
@@ -607,16 +547,8 @@ async def _download_one_standard(std: dict, existing: set) -> dict:
         content_type = resp.headers.get('content-type', '')
         body = resp.content
         # PDF 校验头；Word 仅校验长度（docx=PK.., doc=D0CF11E0..）
-        if file_ext == '.pdf':
-            is_pdf = 'pdf' in content_type.lower() or body[:5] == b'%PDF-'
-            if not is_pdf or len(body) < 1000:
-                reason = f'响应非PDF(ct={content_type},len={len(body)}B)'
-                _log.info(f"  [MEM][{source}][FAIL] {reason}: {code}")
-                std[_MEM_DL_STATUS] = 'failed'
-                std['failReason'] = reason
-                return std
-        elif len(body) < 1000:
-            reason = f'响应过小(ct={content_type},len={len(body)}B)'
+        reason = validate_file_response(body, content_type, file_ext)
+        if reason:
             _log.info(f"  [MEM][{source}][FAIL] {reason}: {code}")
             std[_MEM_DL_STATUS] = 'failed'
             std['failReason'] = reason
@@ -624,11 +556,10 @@ async def _download_one_standard(std: dict, existing: set) -> dict:
         # 落盘
         out_dir = get_output_dir()
         filepath = out_dir / filename
-        filepath.write_bytes(body)
+        save_file(body, filepath, filename, existing)
         _log.info(f"  [MEM][{source}][OK] {filepath} ({len(body)/1024:.0f}KB)")
         std[_MEM_DL_STATUS] = 'downloaded'
         std.pop('failReason', None)
-        existing.add(filename.lower())
         return std
     except Exception as e:
         reason = f'{type(e).__name__}: {e}'

@@ -2,9 +2,9 @@
 
 全国团体标准信息平台 https://www.ttbz.org.cn
 
-关键发现（2026-07-19 通过 chrome-devtools MCP 抓包确认）：
-  从 /standard.html 入口访问 /cms-proxy/ms/ 接口完全无 WAF 拦截，
-  可用 httpx 直接调用，无需 Playwright/cookie/滑块。
+关键发现（2026-07-19 抓包，2026-11-14 复核）：
+  先访问 /standard.html 取得 JSESSIONID，再调用 /cms-proxy/ms/ 接口；
+  请求不要声明 br（运行环境未装 brotli 时无法解压），无需 Playwright/滑块。
 
 接口契约：
   1. 列表搜索 POST /cms-proxy/ms/portal/standardInfo/getPortalStandardList
@@ -31,12 +31,14 @@
 
 import asyncio
 import logging
+import threading
 import urllib.parse
 from typing import Callable, Optional
 
 from app.helpers import normalize_code
 from app.keywords import is_safety, set_active_group
-from app.scanner.checkpoint import get_incr_checkpoint, update_incr_checkpoint
+from app.scanner.scan_core import make_filter_key, scan_pages
+from app.scanner.download_helpers import save_file, validate_file_response
 from app.scanner.utils import make_filename
 from config.settings import (
     TT_API_LIST, TT_API_DETAIL, TT_BASE, TT_LIST_URL,
@@ -59,6 +61,8 @@ def _tt_headers() -> dict:
         'User-Agent': _TT_UA,
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'zh-CN,zh;q=0.9',
+        # 不声明 br：运行环境未装 brotli 时 httpx 无法解压，会拿到加密般的原始字节
+        'Accept-Encoding': 'gzip, deflate',
         'Content-Type': 'application/x-www-form-urlencoded',
         'Referer': _TT_REFERER,
         'Origin': TT_BASE,
@@ -74,6 +78,40 @@ def _tt_download_headers() -> dict:
     }
 
 
+_tt_session_ready = False
+_tt_session_lock = threading.Lock()
+
+
+def _ensure_tt_session(force: bool = False):
+    """确保已从入口页拿到 JSESSIONID；无 cookie 时接口返回加密内容。"""
+    global _tt_session_ready
+    with _tt_session_lock:
+        if force:
+            _tt_session_ready = False
+        if _tt_session_ready:
+            return
+        resp = http_client.get(TT_LIST_URL, headers={
+            'User-Agent': _TT_UA, 'Accept-Encoding': 'gzip, deflate'}, timeout=30)
+        resp.raise_for_status()
+        _tt_session_ready = True
+
+
+def _post_api_json(url: str, body: str, retry: bool = True) -> dict:
+    """POST 接口；会话失效导致响应无法解码时刷新会话并重试一次。"""
+    _ensure_tt_session()
+    resp = http_client.post(url, content=body.encode('utf-8'),
+                            headers=_tt_headers(), timeout=30)
+    resp.raise_for_status()
+    try:
+        return resp.json()
+    except ValueError as e:
+        if not retry:
+            raise
+        _log.warning(f"[TT] 响应异常（{type(e).__name__}），刷新会话后重试")
+        _ensure_tt_session(force=True)
+        return _post_api_json(url, body, retry=False)
+
+
 def _call_list_api(page_no: int, page_size: int, search_key: str = '') -> dict:
     """同步调用列表搜索 API。返回原始 JSON dict。"""
     body = urllib.parse.urlencode({
@@ -81,10 +119,7 @@ def _call_list_api(page_no: int, page_size: int, search_key: str = '') -> dict:
         'pageSize': page_size,
         'searchKey': search_key,
     })
-    resp = http_client.post(TT_API_LIST, content=body.encode('utf-8'),
-                            headers=_tt_headers(), timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
+    data = _post_api_json(TT_API_LIST, body)
     if not data.get('result'):
         raise RuntimeError(f"ttbz 列表 API 返回失败: {data}")
     return data
@@ -93,10 +128,7 @@ def _call_list_api(page_no: int, page_size: int, search_key: str = '') -> dict:
 def _call_detail_api(standard_unique_id: str) -> dict:
     """同步调用详情 API。返回原始 JSON dict。"""
     body = urllib.parse.urlencode({'standardUniqueId': standard_unique_id})
-    resp = http_client.post(TT_API_DETAIL, content=body.encode('utf-8'),
-                            headers=_tt_headers(), timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+    return _post_api_json(TT_API_DETAIL, body)
 
 
 def _parse_list_rows(rows: list) -> list:
@@ -135,7 +167,7 @@ async def scan_tt_standards(
     status: str = '现行',
     on_error: Callable = None,
 ) -> list:
-    """扫描团体标准列表（httpx 直接调用 /cms-proxy/ms/ 接口，无 WAF）。
+    """扫描团体标准列表（需先取得 JSESSIONID，再直连 /cms-proxy/ms/ 接口）。
 
     Args:
         cnl1_codes: 中国标准分类号一级代码列表（保留参数，API 暂未使用，留作扩展）
@@ -153,109 +185,39 @@ async def scan_tt_standards(
     set_active_group(keyword_group or '安全生产')
     is_all = keyword_group == '__all__'
 
-    all_standards = []
-    total_scanned = 0
-    ckpt_key = 'tt_all'
-
-    # 增量 checkpoint
-    last_first_id = None
-    if incr:
-        ckpt = get_incr_checkpoint('tt', ckpt_key)
-        if ckpt:
-            last_first_id = ckpt.get('first_id')
-            _log.info(f"[TT] 增量扫描，上次最新 standardUniqueId={last_first_id}")
-
-    page_no = 1
-    hit_last = False
-
-    while total_scanned < max_results:
-        if check_pause:
-            try:
-                if not await check_pause():
-                    return all_standards
-            except Exception:
-                pass
-
-        if on_progress:
-            pct = min(95, int(total_scanned / max(max_results, 1) * 95))
-            try:
-                await on_progress(pct, f'扫描中 第{page_no}页（已{total_scanned}条）')
-            except Exception:
-                pass
-
-        # 同步 HTTP 调用包装到 executor
+    async def _fetch(page):
         loop = asyncio.get_running_loop()
-        try:
-            data = await loop.run_in_executor(
-                None, _call_list_api, page_no, _TT_PAGE_SIZE, '',
-            )
-        except Exception as e:
-            if on_error:
-                on_error(page_no, e)
-            else:
-                _log.error(f"[TT] 第{page_no}页列表请求失败: {e}")
-            break
-
+        data = await loop.run_in_executor(
+            None, _call_list_api, page, _TT_PAGE_SIZE, '',
+        )
         rows = (data.get('data') or {}).get('rows') or []
-        if not rows:
-            _log.info(f"[TT] 第{page_no}页无数据，结束")
-            break
+        return _parse_list_rows(rows)
 
-        page_items = _parse_list_rows(rows)
-
-        # 增量比对：逐条检查是否命中上次位置
-        for it in page_items:
-            if last_first_id and it['detail_id'] == last_first_id:
-                _log.info(f"[TT] 增量命中上次位置 standardUniqueId={last_first_id}，停止")
-                hit_last = True
-                break
-            # 状态过滤
-            if status and status != '全部' and it.get('status') != status:
-                continue
-            # 关键词过滤（__all__ 模式跳过）
-            if not is_all and not is_safety(it.get('name', ''), 'tt'):
-                continue
-            all_standards.append(it)
-            total_scanned += 1
-            if total_scanned >= max_results:
-                break
-
-        if hit_last:
-            break
-        if total_scanned >= max_results:
-            break
-
-        # 推送中间结果
-        if on_intermediate:
-            try:
-                await on_intermediate(list(all_standards))
-            except Exception:
-                pass
-
-        # 翻页前判断：当前页不足一页，说明已到末页
-        if len(rows) < _TT_PAGE_SIZE:
-            break
-
-        page_no += 1
-        # 保护网站
-        await asyncio.sleep(get_delay())
-
-    # 更新 checkpoint（保存本次最新一条 standardUniqueId）
-    if all_standards:
-        update_incr_checkpoint('tt', ckpt_key, {
-            'first_id': all_standards[0]['detail_id'],
-            'first_code': all_standards[0].get('code', ''),
-            'first_name': all_standards[0].get('name', ''),
-            'count': len(all_standards),
-        })
-
-    _log.info(f"[TT] 扫描完成: {len(all_standards)} 条")
-    return all_standards
+    return await scan_pages(
+        fetch_page=_fetch,
+        scan_type='tt',
+        item_key='tt_all',
+        filter_key=make_filter_key(status, keyword_group or '安全生产'),
+        incr=incr,
+        max_results=max_results,
+        page_size=_TT_PAGE_SIZE,
+        item_id=lambda it: it['detail_id'],
+        filter_item=lambda it: (
+            (not status or status == '全部' or it.get('status') == status)
+            and (is_all or is_safety(it.get('name', ''), 'tt'))
+        ),
+        on_progress=on_progress,
+        on_intermediate=on_intermediate,
+        check_pause=check_pause,
+        on_error=on_error,
+        label='[TT]',
+        progress_text=lambda page, n: f'扫描中 第{page}页（已{n}条）',
+    )
 
 
 # ==================== 搜索 ====================
 async def search_tt_standards(query: str, max_results: int = 20) -> list:
-    """在 ttbz.org.cn 搜索团体标准（httpx 直接调用 API，无 WAF）。
+    """在 ttbz.org.cn 搜索团体标准（需先取得 JSESSIONID，再直连 API）。
 
     供 /api/search/query 和 /api/search/batch 调用。
     """
@@ -351,9 +313,8 @@ async def _download_one_standard(std: dict, existing: set, abort_check=None) -> 
         )
         content_type = resp.headers.get('content-type', '')
         body = resp.content
-        is_pdf = 'pdf' in content_type.lower() or body[:5] == b'%PDF-'
-        if not is_pdf or len(body) < 1000:
-            reason = f'响应非PDF(ct={content_type},len={len(body)}B)'
+        reason = validate_file_response(body, content_type, '.pdf')
+        if reason:
             _log.info(f"  [TT][FAIL] {reason}: {code}")
             std[_TT_DL_STATUS] = 'failed'
             std['failReason'] = reason
@@ -361,11 +322,10 @@ async def _download_one_standard(std: dict, existing: set, abort_check=None) -> 
         # 落盘
         out_dir = get_output_dir()
         filepath = out_dir / filename
-        filepath.write_bytes(body)
+        save_file(body, filepath, filename, existing)
         _log.info(f"  [TT][OK] {filepath} ({len(body)/1024:.0f}KB)")
         std[_TT_DL_STATUS] = 'downloaded'
         std.pop('failReason', None)
-        existing.add(filename.lower())
         return std
     except Exception as e:
         reason = f'{type(e).__name__}: {e}'

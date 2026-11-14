@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 from config.settings import DB_API_URL, http_client
 from app.keywords import set_active_group
 from app.scanner.hb_scan import _scan_list_standards, _download_standards
+from app.scanner.scan_core import make_filter_key
 
 _log = logging.getLogger('std_scraper')
 
@@ -65,7 +66,11 @@ def scan_db_standards(provinces=None, max_results=500, incr=False, keyword_group
     def _fetch(item, page, size):
         return fetch_db_list(province=item, page=page, size=size, status=status)
 
-    return _scan_list_standards(provinces, '省份', _fetch, 'db', 'DB-SCAN', max_results, incr, on_progress=on_progress, on_intermediate=on_intermediate, check_pause=check_pause, on_error=on_error)
+    return _scan_list_standards(
+        provinces, '省份', _fetch, 'db', 'DB-SCAN', max_results, incr,
+        on_progress=on_progress, on_intermediate=on_intermediate,
+        check_pause=check_pause, on_error=on_error,
+        filter_key=make_filter_key(status, keyword_group or '安全生产', 'db'))
 
 
 async def download_db_standards(standards, on_progress=None, on_item_done=None, check_pause=None):

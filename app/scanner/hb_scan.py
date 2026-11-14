@@ -15,6 +15,7 @@ from app.keywords import is_safety, is_aq_yj, set_active_group
 from app.dedup import get_existing_files
 from app.scanner.utils import make_filename
 from app.scanner.checkpoint import get_incr_checkpoint, update_incr_checkpoint
+from app.scanner.scan_core import make_filter_key
 from app.scanner.download_helpers import fetch_and_save_pdf, sleep_with_abort
 from app.helpers import normalize_code
 
@@ -63,7 +64,7 @@ def fetch_hb_list(industry='', key='', status=None, page=1, size=100):
     return resp.json()
 
 
-def _scan_list_standards(items, item_label, fetch_fn, site_type, log_prefix, max_results=500, incr=False, on_progress=None, on_intermediate=None, check_pause=None, on_error=None):
+def _scan_list_standards(items, item_label, fetch_fn, site_type, log_prefix, max_results=500, incr=False, on_progress=None, on_intermediate=None, check_pause=None, on_error=None, filter_key=''):
     """统一的行业/地方标准扫描，支持 max_results + incr。
 
     网页默认按最新在前排序。incr=True 时从 checkpoint 读取各 item
@@ -76,6 +77,9 @@ def _scan_list_standards(items, item_label, fetch_fn, site_type, log_prefix, max
     on_intermediate: 可选 callable(standards)，每扫描一页后调用（同步），用于推送中间结果
     check_pause: 可选 callable() → bool，每页前调用，返回 False 则中止扫描（同步，线程内调用）
     """
+    if max_results <= 0:
+        return []
+
     all_standards = []
     total_items = len(items)
     for item_idx, item in enumerate(items):
@@ -83,6 +87,9 @@ def _scan_list_standards(items, item_label, fetch_fn, site_type, log_prefix, max
         _log.info(f"{log_prefix} {item_label}: {label}")
 
         item_ckpt = get_incr_checkpoint(site_type, item) if incr else None
+        if item_ckpt and item_ckpt.get('filter') and item_ckpt['filter'] != filter_key:
+            _log.info(f"   筛选条件已变化（{item_ckpt['filter']} → {filter_key}），本次按全量扫描")
+            item_ckpt = None
         # 用 first_pk 精确比对（pk 是 sha256 主键，唯一可靠）
         last_first_pk = item_ckpt.get('first_pk') if item_ckpt else None
         if incr and last_first_pk:
@@ -90,9 +97,12 @@ def _scan_list_standards(items, item_label, fetch_fn, site_type, log_prefix, max
 
         item_count = 0
         max_pages = math.ceil(max_results / 100)
+        # 增量有历史位置时允许突破 max_results 扫到上次位置，3 倍页数作为安全上限
+        page_limit = max(20, max_pages * 3) if (incr and last_first_pk) else max_pages
         found_checkpoint = False
+        ended = False
 
-        for page in range(1, max_pages + 1):
+        for page in range(1, page_limit + 1):
             if check_pause:
                 if not check_pause():
                     _log.info(f"   {item_label}={label} 扫描被中止")
@@ -108,6 +118,7 @@ def _scan_list_standards(items, item_label, fetch_fn, site_type, log_prefix, max
 
             records = result.get('records', [])
             if not records:
+                ended = True
                 if page == 1:
                     _log.info(f"   {item_label}={label} 该状态无数据，跳过")
                 break
@@ -123,7 +134,7 @@ def _scan_list_standards(items, item_label, fetch_fn, site_type, log_prefix, max
             cnt = 0
             hit_checkpoint = False
             for r in records:
-                if item_count >= max_results:
+                if item_count >= max_results and not (incr and last_first_pk):
                     break
                 # 增量命中：当前条目就是上次扫描的最新一条 → 该条及之后都已扫过
                 if incr and last_first_pk and r.get('pk') == last_first_pk:
@@ -156,21 +167,22 @@ def _scan_list_standards(items, item_label, fetch_fn, site_type, log_prefix, max
             pages = result.get('pages', 0)
             _log.info(f"   {item_label}={label} 第{page}/{pages}页: +{cnt}条 本项{item_count} 累计{len(all_standards)} (总{total})")
 
-            if item_count >= max_results:
+            if item_count >= max_results and not (incr and last_first_pk):
                 _log.info(f"   {item_label}={label} 已达 max_results({max_results})，停止")
                 break
 
             if on_progress:
-                overall = (item_idx * max_pages + page)
-                total_pages = total_items * max_pages
+                overall = (item_idx * page_limit + page)
+                total_pages = total_items * page_limit
                 pct = min(99, int(100 * overall / total_pages))
                 # 与国标统一格式：显示当前页/总页数
-                on_progress(pct, f"扫描{label}({item_idx + 1}/{total_items}) 第{page}/{pages}页")
+                on_progress(pct, f"扫描{label}({item_idx + 1}/{total_items}) 第{page}/{page_limit}页")
 
             if on_intermediate:
                 on_intermediate(all_standards)
 
             if page >= pages:
+                ended = True
                 break
             time.sleep(get_delay())
 
@@ -180,7 +192,11 @@ def _scan_list_standards(items, item_label, fetch_fn, site_type, log_prefix, max
         else:
             item_results = [s for s in all_standards
                             if s.get('siteType') == site_type and s.get('industry') == item]
-        if item_results:
+        ckpt_blocked = bool(incr and last_first_pk and not found_checkpoint and not ended)
+        if ckpt_blocked:
+            _log.warning(f"   {item_label}={label} 增量扫描超过 {page_limit} 页仍未命中上次位置，"
+                         f"checkpoint 未推进，建议提高 max_results")
+        if item_results and not ckpt_blocked:
             ckpt_page = page - 1 if found_checkpoint else page
             if ckpt_page > 0:
                 update_incr_checkpoint(site_type, item, {
@@ -189,6 +205,7 @@ def _scan_list_standards(items, item_label, fetch_fn, site_type, log_prefix, max
                     'first_name': item_results[0].get('stdName'),
                     'page': ckpt_page,
                     'count': len(item_results),
+                    'filter': filter_key,
                 })
 
     result_label = '行业标准' if site_type == 'hb' else '地方标准'
@@ -334,7 +351,11 @@ def scan_hb_standards(industries=None, max_results=500, incr=False, keyword_grou
     def _fetch(item, page, size):
         return fetch_hb_list(industry=item, page=page, size=size, status=status)
 
-    return _scan_list_standards(industries, '行业', _fetch, 'hb', 'HB-SCAN', max_results, incr, on_progress=on_progress, on_intermediate=on_intermediate, check_pause=check_pause, on_error=on_error)
+    return _scan_list_standards(
+        industries, '行业', _fetch, 'hb', 'HB-SCAN', max_results, incr,
+        on_progress=on_progress, on_intermediate=on_intermediate,
+        check_pause=check_pause, on_error=on_error,
+        filter_key=make_filter_key(status, keyword_group or '安全生产', 'hb'))
 
 
 async def download_hb_standards(standards, on_progress=None, on_item_done=None, check_pause=None):

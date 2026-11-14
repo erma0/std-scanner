@@ -13,7 +13,6 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request
 
 # app.scanner_engine 导入耗时长（~0.7s，含 GB/HB/DB/TT 扫描器），延迟到 run_scheduled_scan 内
-from config.manager import load_config
 # 注意：不直接 from .state import _main_loop / ns —— 那会在 import 时按值快照为 None，
 # 而 state._main_loop / state.ns 在 lifespan 中才被赋值/热重载时会被重新赋值。
 # 通过模块属性按需读取，保证始终拿到最新实例。

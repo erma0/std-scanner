@@ -13,6 +13,7 @@ from app.keywords import is_safety, is_aq_yj, clean_name, set_active_group
 from app.dedup import get_existing_files, add_to_existing_files_cache
 from app.scanner.utils import make_filename
 from app.scanner.checkpoint import get_incr_checkpoint, update_incr_checkpoint
+from app.scanner.scan_core import make_filter_key
 from app.scanner.download import download_with_captcha
 from app.scanner.preview import launch_browser, preview_to_pdf, PLAYWRIGHT_AVAILABLE
 from app.scanner.progress import save_progress
@@ -40,7 +41,14 @@ async def scan_pages(max_results=500, incr=False, keyword_group=None, on_progres
     check_pause: 可选 async callable() → bool，每页前调用，返回 False 则中止扫描
     on_intermediate: 可选 async callable(standards_list)，每页扫描后推送累计结果
     """
+    if max_results <= 0:
+        return []
+
+    filter_key = make_filter_key(state or '全部', keyword_group or '安全生产')
     ckpt = get_incr_checkpoint('gb') if incr else None
+    if ckpt and ckpt.get('filter') and ckpt['filter'] != filter_key:
+        _log.info(f"[GB] 筛选条件已变化（{ckpt['filter']} → {filter_key}），本次按全量扫描")
+        ckpt = None
     # 用 first_id 精确比对（API 内部唯一 ID，比 code 更可靠）
     last_first_id = ckpt.get('first_id') if ckpt else None
     all_standards = []
@@ -49,12 +57,16 @@ async def scan_pages(max_results=500, incr=False, keyword_group=None, on_progres
 
     # 从 max_results 计算所需页数（每页 PAGE_SIZE=50 条）
     max_pages = math.ceil(max_results / PAGE_SIZE)
+    # 增量有历史位置时允许突破 max_results 扫到上次位置，3 倍页数作为安全上限
+    page_limit = max(30, max_pages * 3) if (incr and last_first_id) else max_pages
 
-    _log.info(f"[SCAN] 最大采集: {max_results}条 (最多{max_pages}页), 增量: {incr}"
+    _log.info(f"[SCAN] 最大采集: {max_results}条 (最多{page_limit}页), 增量: {incr}"
               + (f", 上次位置: id={last_first_id or 'N/A'}" if incr else ""))
 
+    hit_checkpoint = False
+    ended = False
     p = 0  # 初始化，避免 max_results=0 时循环不执行导致下方引用未定义
-    for p in range(1, max_pages + 1):
+    for p in range(1, page_limit + 1):
         if check_pause:
             if not await check_pause():
                 _log.info("扫描被中止（暂停/删除）")
@@ -72,19 +84,20 @@ async def scan_pages(max_results=500, incr=False, keyword_group=None, on_progres
 
         rows = data.get('rows', [])
         if not rows:
+            ended = True
             break
 
         # 增量短路：首页第一条 id 与上次 checkpoint 完全相同 → 无任何新数据
         if incr and last_first_id and rows[0].get('id') == last_first_id:
             _log.info("  首页首条与上次位置一致，无新增数据")
+            hit_checkpoint = True
             break
 
         # 增量逐条比对：遍历每条记录，遇到上次扫描的"最新一条"即说明后续都已扫过
         # 这样无论新增 0 条还是 N 条，都只扫到"上次最新位置"就停（不再扫满 max_results）
         cnt = 0
-        hit_checkpoint = False
         for row in rows:
-            if len(all_standards) >= max_results:
+            if len(all_standards) >= max_results and not (incr and last_first_id):
                 break
             # 增量命中：当前条目就是上次扫描的最新一条 → 该条及之后都已扫过
             if incr and last_first_id and row.get('id') == last_first_id:
@@ -119,12 +132,12 @@ async def scan_pages(max_results=500, incr=False, keyword_group=None, on_progres
         if on_intermediate and all_standards:
             await on_intermediate(list(all_standards))
 
-        if len(all_standards) >= max_results:
+        if len(all_standards) >= max_results and not (incr and last_first_id):
             break
 
         # 每 5 页保存 checkpoint（容错，避免崩溃丢失全部进度）
-        # first_id 是增量精确比对的关键字段，必须保存
-        if p % 5 == 0 and all_standards:
+        # 增量追扫期间不推进，避免崩溃后跳过尚未扫到的中间条目
+        if p % 5 == 0 and all_standards and not (incr and last_first_id):
             update_incr_checkpoint('gb', None, {
                 'first_id': all_standards[0].get('id'),
                 'first_code': all_standards[0].get('stdCode'),
@@ -135,14 +148,21 @@ async def scan_pages(max_results=500, incr=False, keyword_group=None, on_progres
 
         await asyncio.sleep(get_delay())
 
+    # 增量追扫触达页数上限且未命中上次位置：不推进 checkpoint，避免漏扫
+    ckpt_blocked = bool(incr and last_first_id and not hit_checkpoint and not ended)
+    if ckpt_blocked:
+        _log.warning(f"[GB] 增量扫描超过 {page_limit} 页仍未命中上次位置，"
+                     f"checkpoint 未推进，建议提高 max_results")
+
     # 最终保存 checkpoint
-    if all_standards:
+    if all_standards and not ckpt_blocked:
         update_incr_checkpoint('gb', None, {
             'first_code': all_standards[0].get('stdCode'),
             'first_name': all_standards[0].get('stdName'),
             'first_id': all_standards[0].get('id'),
             'last_page': p,
             'count': len(all_standards),
+            'filter': filter_key,
         })
 
     return all_standards

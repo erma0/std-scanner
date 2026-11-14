@@ -1,9 +1,9 @@
 """scanner.download_helpers — 下载流程共享工具
 
-抽取 gb_scan / routes.search / quick 三处重复的逻辑：
+抽取扫描器共用的下载逻辑：
   - 按钮检测 + 版权判定
   - hcno 提取
-  - 下载 + 落盘 + 去重缓存（单次 executor 调用，避免 async 中同步 I/O）
+  - 响应校验（PDF 魔数/大小）+ 原子落盘 + 去重缓存
 """
 
 import re
@@ -73,6 +73,28 @@ def sleep_with_abort(seconds: float, abort_check: Optional[Callable[[], bool]] =
         if remaining <= 0:
             return True
         time.sleep(min(0.2, remaining))
+
+
+def validate_file_response(body: bytes, content_type: str,
+                           ext: str = '.pdf', min_size: int = 1000) -> str:
+    """校验下载响应，返回失败原因；空字符串表示通过。
+
+    PDF 校验魔数，Word 等格式仅校验大小。
+    """
+    if len(body) < min_size:
+        return f'响应过小(ct={content_type},len={len(body)}B)'
+    if ext.lower() == '.pdf':
+        if 'pdf' not in content_type.lower() and body[:5] != b'%PDF-':
+            return f'响应非PDF(ct={content_type},len={len(body)}B)'
+    return ''
+
+
+def save_file(body: bytes, filepath, filename: str, existing: set):
+    """原子落盘并更新去重缓存。"""
+    atomic_write(str(filepath), body, dir_=str(filepath.parent))
+    from app.dedup import add_to_existing_files_cache
+    add_to_existing_files_cache(filename)
+    existing.add(filename.lower())
 
 
 def fetch_and_save_pdf(
