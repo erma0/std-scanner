@@ -3,12 +3,15 @@
 应急管理部 - 法律法规标准 下两个栏目：
 
 1) 标准文本 (bz)：https://www.mem.gov.cn/fw/flfgbz/bz/bzwb/
-   - HTML 静态渲染，每页 20 条，共 48 页 / 948 条
+   - HTML 静态渲染，每页 20 条，共 48 页 / 952 条
    - 列表项：<a class="newttle" href="...">TITLE<span>DATE</span></a>
-   - 详情页：在 <div class="zhenwen_neir"> 内有 <a href="...PDF_URL..."> 标准名 </a>
+   - 近期条目有详情页，在 <div class="zhenwen_neir"> 内有 <a href="...PDF_URL..."> 标准名 </a>
+     早期条目（约 26 页之后）没有详情页，href 直接指向 pdf/doc/docx 文件
    - 标题格式："CODE—YEAR NAME"（如 "AQ 9010.4—2026 安全生产..."）
      部分标题带《》书名号："GB 23468-2025《 坠落防护...》"
-   - 状态：mem.gov.cn 不提供，所有按"现行"处理
+     早期标题把编号放在括号里："尾矿库安全技术规程(AQ 2006-2005)"
+   - 状态：mem.gov.cn 不提供。AQ 编号用行业标准平台（hbba）的废止清单校正；
+     早期直链文件状态留空（多为历史文本），不冒充现行
 
 2) 规章 (gz)：https://www.mem.gov.cn/fw/flfgbz/gz/  (列表通过 iframe 加载)
    iframe URL：https://www.mem.gov.cn/gk/zfxxgkpt/fdzdgknr/gz11/index.shtml
@@ -27,7 +30,8 @@
   文章 ID（URL 末尾数字，如 608470） → detail_id / pid
   bz: 标题前半部分（如 "AQ 9010.4-2026"） → code；标题后半部分 → name
   gz: code 留空；name = 规章标题
-  bz: 状态固定 '现行'
+  bz: 近期条目默认 '现行'，行业标准平台标记为废止的 AQ 编号 → '废止'；
+      早期直链文件状态留空
   gz: 标题含"已废止" → '废止'，否则 '现行'
 
 增量扫描：用文章 ID 作为比对字段。
@@ -36,6 +40,7 @@
 import asyncio
 import logging
 import re
+import time
 import urllib.parse
 from typing import Callable, Optional
 
@@ -45,7 +50,7 @@ from app.scanner.scan_core import make_filter_key, scan_pages
 from app.scanner.download_helpers import save_file, validate_file_response
 from app.scanner.utils import make_filename
 from config.settings import (
-    MEM_BASE, MEM_LIST_URL, MEM_GZ_LIST_URL,
+    MEM_BASE, MEM_LIST_URL, MEM_GZ_LIST_URL, HB_CODE_MAP,
     get_output_dir, get_delay, http_client,
 )
 
@@ -100,6 +105,10 @@ _BZ_LIST_ITEM_RE = re.compile(
     r'<a\s+class="newttle"\s+href="([^"]+)"\s*>([^<]+)<span>([^<]+)</span></a>'
 )
 
+# 早期条目的 href 直接指向文件（无详情页），扩展名可能是 pdf/doc/docx：
+# ./200706/P020190327401511869484.pdf → (P020190327401511869484, pdf)
+_BZ_FILE_HREF_RE = re.compile(r'/(P0\d+)\.(pdf|docx?|wps)$', re.IGNORECASE)
+
 # 详情页 PDF URL 正则（取第一个 .pdf 链接）
 _BZ_DETAIL_PDF_RE = re.compile(r'href="((?:https?://[^"]*?|/[^"]*?)\.pdf)"', re.IGNORECASE)
 
@@ -107,6 +116,11 @@ _BZ_DETAIL_PDF_RE = re.compile(r'href="((?:https?://[^"]*?|/[^"]*?)\.pdf)"', re.
 # CODE 形如：AQ / AQ 9010.4 / YJT 48 / YJ/T 41
 # 先做 dash 归一化（— → -），再用前缀正则一次性分离 code/name
 _BZ_CODE_PREFIX_RE = re.compile(r'^([A-Z]+(?:/[A-Z])?\s+\d+(?:\.\d+)*-\d{4})')
+
+# 早期条目标题把编号放在末尾括号里：'尾矿库安全技术规程(AQ 2006-2005)'
+_BZ_PAREN_CODE_RE = re.compile(
+    r'^(.+?)\s*[（(]\s*([A-Z]+(?:/[A-Z])?\s+\d+(?:\.\d+)*-\d{4})\s*[）)]\s*$'
+)
 
 # 文章 ID 提取：t20260622_608470.shtml → 608470
 _ARTICLE_ID_RE = re.compile(r't\d{8}_(\d+)\.shtml')
@@ -122,6 +136,8 @@ def _bz_parse_title(title: str) -> tuple:
         → ('GB 23468-2025', '坠落防护装备装备的选择、使用和维护')
       'YJ/T 40—2026 自然灾害灾情社会化采集技术规范'
         → ('YJ/T 40-2026', '自然灾害灾情社会化采集技术规范')
+      '尾矿库安全技术规程(AQ 2006-2005)'
+        → ('AQ 2006-2005', '尾矿库安全技术规程')
     """
     # 先归一化 dash 字符（— → -）
     normalized = title.translate(_DASH_NORMALIZE_TABLE)
@@ -135,6 +151,9 @@ def _bz_parse_title(title: str) -> tuple:
         if name.endswith('》'):
             name = name[:-1].strip()
         return code, name
+    m = _BZ_PAREN_CODE_RE.match(normalized)
+    if m:
+        return normalize_code(m.group(2)), m.group(1).strip()
     # 无法解析 code：整段作为 name，code 留空
     return '', title.strip()
 
@@ -145,11 +164,12 @@ def _bz_parse_list_items(html: str) -> list:
     for m in _BZ_LIST_ITEM_RE.finditer(html):
         href, title, date = m.group(1), m.group(2).strip(), m.group(3).strip()
 
-        # 解析文章 ID（作为 detail_id 和 pid）
+        # 文章 ID（作为 detail_id 和 pid）；早期条目没有详情页，href 直接是文件
         id_match = _ARTICLE_ID_RE.search(href)
-        if not id_match:
+        file_match = _BZ_FILE_HREF_RE.search(href) if not id_match else None
+        if not id_match and not file_match:
             continue
-        article_id = id_match.group(1)
+        detail_id = id_match.group(1) if id_match else file_match.group(1)
 
         # 解析 code 和 name
         code, name = _bz_parse_title(title)
@@ -160,19 +180,25 @@ def _bz_parse_list_items(html: str) -> list:
         # 日期取 YYYY-MM-DD 部分（原格式 "2026-06-22 10:43"）
         publish_date = date.split(' ')[0] if ' ' in date else date
 
-        items.append({
-            'detail_id': article_id,
-            'pid': article_id,
+        item = {
+            'detail_id': detail_id,
+            'pid': detail_id,
             'code': code,
             'name': name,
             'publishDate': publish_date,
-            'status': '现行',          # mem.gov.cn 不提供状态，新发布按现行处理
+            # 早期直链文件多半已被替代，状态留空（不冒充现行），仅"全部"可见，
+            # 确认为废止的由 AQ 清单校正
+            'status': '现行' if id_match else '',
             'sellable': False,
             'tid': 'BV_MEM',
             'type': 'mem',
             'source': 'bz',
             'detail_url': detail_url,
-        })
+        }
+        if file_match:
+            item['pdf_url'] = detail_url
+            item['file_ext'] = f".{file_match.group(2).lower()}"
+        items.append(item)
     return items
 
 
@@ -318,6 +344,70 @@ def _parse_list_items(html: str, source: str = 'bz') -> list:
     return _bz_parse_list_items(html)
 
 
+# ==================== AQ 状态校正（行业标准平台） ====================
+# bz 列表没有状态字段；AQ 编号用行业标准平台的废止清单校正，
+# 避免把已被替代的旧版当作现行标准下载。平台未收录的编号保持原状态。
+_AQ_OBSOLETE_CACHE = {'ts': 0.0, 'codes': frozenset(), 'names': frozenset()}
+_AQ_OBSOLETE_TTL = 1800
+_AQ_INDUSTRY = HB_CODE_MAP.get('AQ', '安全生产')
+
+
+def _code_key(code: str) -> str:
+    """编号比对 key：归一化 dash 并压缩空白。"""
+    return ' '.join(normalize_code(code or '').split()).upper()
+
+
+def _name_key(name: str) -> str:
+    """名称比对 key：去掉全部空白（平台与站点的空格数量常不一致）。"""
+    return re.sub(r'\s+', '', name or '')
+
+
+def _load_aq_obsolete_index() -> dict:
+    """读取行业标准平台中 AQ 废止编号/名称（进程内缓存 30 分钟）。"""
+    now = time.time()
+    if now - _AQ_OBSOLETE_CACHE['ts'] < _AQ_OBSOLETE_TTL:
+        return _AQ_OBSOLETE_CACHE
+    codes, names = set(), set()
+    try:
+        from app.scanner.hb_scan import fetch_hb_list
+        page = 1
+        while True:
+            data = fetch_hb_list(industry=_AQ_INDUSTRY, status='废止', page=page, size=100)
+            for rec in data.get('records') or []:
+                code = _code_key(rec.get('code') or '')
+                if code:
+                    codes.add(code)
+                name = _name_key(rec.get('chName') or '')
+                if name:
+                    names.add(name)
+            if page >= int(data.get('pages') or 0):
+                break
+            page += 1
+        _AQ_OBSOLETE_CACHE.update(ts=now, codes=frozenset(codes),
+                                  names=frozenset(names))
+        _log.info(f"[MEM][bz] 行业标准平台 AQ 废止清单: {len(codes)} 条")
+    except Exception as e:
+        _log.warning(f"[MEM][bz] 读取 AQ 废止清单失败，状态按原值处理: {e}")
+        _AQ_OBSOLETE_CACHE['ts'] = now
+    return _AQ_OBSOLETE_CACHE
+
+
+def _apply_aq_status(items: list) -> list:
+    """把行业标准平台中已废止的 AQ 条目标记为"废止"（编号优先，其次名称）。"""
+    index = _load_aq_obsolete_index()
+    codes, names = index['codes'], index['names']
+    if not codes and not names:
+        return items
+    for it in items:
+        if it.get('code'):
+            # 有编号时只认编号：同名的新版不能被旧版名称误伤
+            if _code_key(it['code']) in codes:
+                it['status'] = '废止'
+        elif _name_key(it.get('name') or '') in names:
+            it['status'] = '废止'
+    return items
+
+
 # ==================== 扫描 ====================
 async def _scan_one_source(
     source: str,
@@ -354,10 +444,16 @@ async def _scan_one_source(
     page_size = _SOURCE_PAGE_SIZE.get(source, _MEM_PAGE_SIZE)
     source_label = '规章' if source == 'gz' else '标准文本'
 
+    def _fetch_sync(page):
+        html = _call_list_page(page, source)
+        items = _parse_list_items(html, source)
+        if source == 'bz':
+            _apply_aq_status(items)
+        return items
+
     async def _fetch(page):
         loop = asyncio.get_running_loop()
-        html = await loop.run_in_executor(None, _call_list_page, page, source)
-        return _parse_list_items(html, source)
+        return await loop.run_in_executor(None, _fetch_sync, page)
 
     return await scan_pages(
         fetch_page=_fetch,
