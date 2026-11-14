@@ -200,7 +200,8 @@ def safe_filename(filename):
     2. 控制字符（换行/回车/制表符等）转空格——直接删除会让前后词粘连；
     3. 半角标点转全角（括号/冒号等），Windows 非法字符用全角形式规避，
        不再替换为下划线（如 '第5部分：智能协同巡检' 而非 '第5部分_智能协同巡检'）；
-    4. / 仍直接删除（保持 GB/T → GBT 的既有约定）；
+    4. / 直接删除（保持 GB/T → GBT 的既有约定）；GB/Z 例外转为 GB-Z，
+       避免与 GBZ（职业卫生标准）混淆；
     5. 连续横杠折叠为一个（'规则--液压电梯' → '规则-液压电梯'）；
     6. 连续空格压缩为一个，前后空格去除。
     """
@@ -220,6 +221,10 @@ def safe_filename(filename):
 
     # 半角标点转全角（含 Windows 非法字符的规避），保留可读性
     filename = filename.translate(_PUNCT_NORMALIZE_TABLE)
+
+    # GB/Z（指导性技术文件）与 GBZ（职业卫生标准）分属不同编号体系，
+    # 去掉斜杠会得到与 GBZ 同形的文件名，故保留为 GB-Z
+    filename = re.sub(r'GB\s*/\s*Z', 'GB-Z', filename, flags=re.I)
 
     # 移除 /（不替换为全角，保持 GB/T → GBT 的既有约定）
     filename = filename.replace('/', '')

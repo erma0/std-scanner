@@ -43,6 +43,11 @@ class TestSafeFilename:
     def test_confused_part_number(self):
         assert safe_filename('GA/T 2075.l-2023 第l部分:溶剂提取') == 'GAT 2075.1-2023 第1部分：溶剂提取'
 
+    def test_gbz_vs_gb_z_not_collide(self):
+        # GB/Z（指导性技术文件）与 GBZ（职业卫生标准）不能生成同名文件
+        assert safe_filename('GB/Z 31822-2015 安全要求') == 'GB-Z 31822-2015 安全要求'
+        assert safe_filename('GBZ 31822-2015 安全要求') == 'GBZ 31822-2015 安全要求'
+
     def test_normalize_code_part_number(self):
         assert normalize_code('GA/T 2075.l—2023') == 'GA/T 2075.1-2023'
 
